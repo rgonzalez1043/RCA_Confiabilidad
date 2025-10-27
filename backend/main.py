@@ -14,7 +14,13 @@ import schemas
 from config import config
 
 # Imports de routers
-from routers import rca, archivos, reportes
+from routers import rca as rca_router_module
+from routers import archivo as archivo_router_module
+from routers import reporte as reporte_router_module
+
+rca_router = rca_router_module.router
+archivo_router = archivo_router_module.router
+reporte_router = reporte_router_module.router  
 
 # Crear tablas si no existen
 Base.metadata.create_all(bind=engine)
