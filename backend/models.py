@@ -113,12 +113,12 @@ class Comentario(Base):
 class Usuario(Base):
     __tablename__ = "usuarios"
     
-    id = Column(Integer, primary_key=True)
-    nombre_usuario = Column(String(50), unique=True, nullable=False)
-    nombre_completo = Column(String(150))
-    email = Column(String(150))
-    password_hash = Column(String(255))
-    rol = Column(Enum('Admin', 'Analista', 'Consultor', 'Visualizador'), default='Consultor')
+    id = Column(Integer, primary_key=True, index=True)
+    nombre_usuario = Column(String(50), unique=True, nullable=False, index=True)
+    nombre_completo = Column(String(100))
+    email = Column(String(100), unique=True, nullable=False, index=True)
+    password_hash = Column(String(255), nullable=False)
+    rol = Column(String(50), nullable=False)  # 'Mantenedor', 'Supervisor', 'Gerente'
     area = Column(String(100))
     activo = Column(Boolean, default=True)
     fecha_creacion = Column(DateTime, default=func.now())

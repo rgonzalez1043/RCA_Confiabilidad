@@ -31,6 +31,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 # Incluir routers
+from routers import auth
+
+app.include_router(auth.router)
 #app.include_router(rca.router)
 #app.include_router(archivos.router)
 #app.include_router(reportes.router)
@@ -262,6 +265,33 @@ def listar_archivos_path(rca_id: int, db: Session = Depends(get_db)):
         })
     
     return resultado
+
+@app.delete("/archivo/{archivo_id}", status_code=204)
+def eliminar_archivo(archivo_id: int, db: Session = Depends(get_db)):
+    """Eliminar archivo y su registro de la base de datos"""
+    # Buscar el archivo en la base de datos
+    archivo = db.query(models.Archivo).filter(models.Archivo.id == archivo_id).first()
+    
+    if not archivo:
+        raise HTTPException(status_code=404, detail="Archivo no encontrado")
+    
+    # Eliminar archivo físico del disco
+    try:
+        if os.path.exists(archivo.ruta_archivo):
+            os.remove(archivo.ruta_archivo)
+            print(f" Archivo físico eliminado: {archivo.ruta_archivo}")
+        else:
+            print(f" Archivo físico no existe: {archivo.ruta_archivo}")
+    except Exception as e:
+        print(f" Error al eliminar archivo físico: {e}")
+        # Continuar para eliminar el registro de la BD de todas formas
+    
+    # Eliminar registro de la base de datos
+    db.delete(archivo)
+    db.commit()
+    
+    print(f" Registro eliminado de BD: ID {archivo_id}")
+    return None
 
 # ==================== ESTADÍSTICAS ====================
 @app.get("/estadisticas/resumen")

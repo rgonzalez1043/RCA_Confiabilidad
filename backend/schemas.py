@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, EmailStr
 from datetime import datetime, date
 from typing import Optional, List
 from enum import Enum
@@ -63,3 +63,33 @@ class ArchivoUpload(BaseModel):
     rca_id: int
     tipo_contenido: Optional[str] = None
     subido_por: Optional[str] = None
+
+# ==================== SCHEMAS DE USUARIO Y AUTENTICACIÓN ====================
+
+class UsuarioBase(BaseModel):
+    email: EmailStr
+    nombre_completo: str
+    rol: str
+    area: Optional[str] = None
+
+class UsuarioCreate(UsuarioBase):
+    password: str
+    nombre_usuario: str
+
+class UsuarioLogin(BaseModel):
+    email: EmailStr
+    password: str
+
+class UsuarioResponse(UsuarioBase):
+    id: int
+    nombre_usuario: str
+    activo: bool
+    fecha_creacion: datetime
+    
+    class Config:
+        from_attributes = True
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+    usuario: dict
