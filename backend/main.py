@@ -31,10 +31,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 # Incluir routers
-from routers import auth
+from routers import auth, rca
 
 app.include_router(auth.router)
-#app.include_router(rca.router)
+app.include_router(rca.router)
 #app.include_router(archivos.router)
 #app.include_router(reportes.router)
 

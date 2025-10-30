@@ -19,7 +19,7 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 horas
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login", auto_error=False)
 
 # ==================== FUNCIONES AUXILIARES ====================
 
@@ -148,20 +148,66 @@ async def login(
 async def registrar_usuario(
     usuario_data: UsuarioCreate,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(verificar_permiso_admin)
+    token: Optional[str] = Depends(oauth2_scheme)
 ):
     """
-    Registrar un nuevo usuario (REQUIERE AUTENTICACIÓN Y PERMISOS DE SUPERVISOR/GERENTE)
+    Registrar un nuevo usuario
     
-    Solo usuarios con rol de Supervisor o Gerente pueden crear nuevos usuarios.
+    🔓 PRIMER USUARIO: Si NO hay usuarios en la BD, permite crear sin autenticación
+    🔒 SIGUIENTES USUARIOS: Requiere autenticación y permisos de Supervisor/Gerente
     
     - nombre_usuario: nombre de usuario único
     - nombre_completo: nombre completo del usuario
     - email: email único del usuario
     - password: contraseña (se guardará hasheada)
-    - rol: Mantenedor, Supervisor o Gerente
+    - rol: Mantenedor, Supervisor o Gerente (se recomienda Gerente para el primer usuario)
     - area: área de trabajo (opcional)
     """
+    # Verificar cuántos usuarios hay
+    total_usuarios = db.query(Usuario).count()
+    
+    # Si ya hay usuarios, REQUIERE autenticación
+    if total_usuarios > 0:
+        if not token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Debes estar autenticado para crear usuarios. Usa el candado 'Authorize' en Swagger.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        # Verificar el token
+        try:
+            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            email: str = payload.get("sub")
+            if email is None:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Token inválido"
+                )
+        except JWTError:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token inválido o expirado"
+            )
+        
+        # Obtener usuario actual
+        current_user = db.query(Usuario).filter(Usuario.email == email).first()
+        if not current_user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Usuario no encontrado"
+            )
+        
+        # Verificar permisos (solo Supervisor o Gerente)
+        if current_user.rol not in ["Supervisor", "Gerente"]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"No tienes permisos. Solo Supervisor y Gerente pueden crear usuarios. Tu rol: {current_user.rol}"
+            )
+    else:
+        # Es el PRIMER usuario - se permite sin autenticación
+        print(f"\n🔓 Creando PRIMER usuario del sistema (sin autenticación requerida)")
+    
     # Verificar si el email ya existe
     if db.query(Usuario).filter(Usuario.email == usuario_data.email).first():
         raise HTTPException(
@@ -176,9 +222,9 @@ async def registrar_usuario(
             detail="El nombre de usuario ya está en uso"
         )
     
-    # Validar rol
+    # Validar rol (ya validado por Pydantic, pero por si acaso)
     roles_validos = ["Mantenedor", "Supervisor", "Gerente"]
-    if usuario_data.rol not in roles_validos:
+    if usuario_data.rol.value not in roles_validos:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Rol inválido. Debe ser uno de: {', '.join(roles_validos)}"
@@ -190,7 +236,7 @@ async def registrar_usuario(
         nombre_completo=usuario_data.nombre_completo,
         email=usuario_data.email,
         password_hash=get_password_hash(usuario_data.password),
-        rol=usuario_data.rol,
+        rol=usuario_data.rol.value,  # Usar .value para obtener el string del Enum
         area=usuario_data.area,
         activo=True
     )
@@ -198,6 +244,11 @@ async def registrar_usuario(
     db.add(nuevo_usuario)
     db.commit()
     db.refresh(nuevo_usuario)
+    
+    # Mensaje informativo
+    if total_usuarios == 0:
+        print(f"✅ PRIMER USUARIO CREADO: {nuevo_usuario.nombre_completo} ({nuevo_usuario.email}) - Rol: {nuevo_usuario.rol}")
+        print(f"🔒 A partir de ahora se requerirá autenticación para crear más usuarios\n")
     
     return nuevo_usuario
 

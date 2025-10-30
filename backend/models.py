@@ -1,4 +1,5 @@
 from sqlalchemy import Column, Integer, String, Text, DateTime, Date, Boolean, DECIMAL, Enum, ForeignKey
+from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database import Base
 
@@ -50,6 +51,10 @@ class RCA(Base):
     
     creado_por = Column(String(100))
     modificado_por = Column(String(100))
+    
+    # Relaciones
+    cinco_porques_rel = relationship("CincoPorques", back_populates="rca", cascade="all, delete-orphan")
+    ishikawa_rel = relationship("Ishikawa", back_populates="rca", cascade="all, delete-orphan")
 
 
 class CincoPorques(Base):
@@ -60,6 +65,9 @@ class CincoPorques(Base):
     nivel = Column(Integer, nullable=False)
     porque = Column(Text, nullable=False)
     respuesta = Column(Text)
+    
+    # Relación
+    rca = relationship("RCA", back_populates="cinco_porques_rel")
 
 
 class Ishikawa(Base):
@@ -70,6 +78,9 @@ class Ishikawa(Base):
     categoria = Column(String(50), nullable=False)
     causa = Column(Text, nullable=False)
     sub_causa = Column(Text)
+    
+    # Relación
+    rca = relationship("RCA", back_populates="ishikawa_rel")
 
 
 class Archivo(Base):
