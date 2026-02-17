@@ -55,8 +55,8 @@ cd backend
 python main.py
 ```
 
-- **API:** http://localhost:8000
-- **Documentación Swagger:** http://localhost:8000/docs
+- **API:** http://localhost:8007
+- **Documentación Swagger:** http://localhost:8007/docs
 
 > 📖 Ver [Guía del Backend](backend/GUIA_BACKEND.md) para instrucciones detalladas de autenticación, roles, endpoints y troubleshooting.
 

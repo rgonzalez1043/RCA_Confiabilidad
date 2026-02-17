@@ -17,7 +17,7 @@ DB_USER=root
 DB_PASSWORD=tu_password
 DB_NAME=rca_database
 SERVER_HOST=0.0.0.0
-SERVER_PORT=8000
+SERVER_PORT=8007
 SECRET_KEY=tu-clave-secreta-segura-minimo-32-caracteres
 ARCHIVOS_PATH=C:/ruta/al/proyecto/archivos
 RESPALDOS_PATH=C:/ruta/al/proyecto/respaldos
@@ -44,7 +44,7 @@ El sistema detecta automáticamente si hay usuarios:
 
 ### Pasos:
 
-1. Ir a Swagger: `http://<IP_SERVIDOR>:8000/docs`
+1. Ir a Swagger: `http://<IP_SERVIDOR>:8007/docs`
 2. Buscar **POST `/auth/registro`** → "Try it out"
 3. Crear tu usuario (recomendado rol **Gerente**):
 
@@ -105,13 +105,13 @@ Respuesta:
 const formData = new FormData();
 formData.append('username', email);
 formData.append('password', password);
-const res = await fetch('http://<IP>:8000/auth/login', { method: 'POST', body: formData });
+const res = await fetch('http://<IP>:8007/auth/login', { method: 'POST', body: formData });
 const data = await res.json();
 localStorage.setItem('token', data.access_token);
 
 // Llamadas autenticadas
 const token = localStorage.getItem('token');
-const res = await fetch('http://<IP>:8000/rca', {
+const res = await fetch('http://<IP>:8007/rca', {
   headers: { 'Authorization': `Bearer ${token}` }
 });
 ```

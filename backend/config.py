@@ -13,7 +13,7 @@ class Config:
     
     # Servidor
     SERVER_HOST = os.getenv('SERVER_HOST', '0.0.0.0')
-    SERVER_PORT = int(os.getenv('SERVER_PORT', 8000))
+    SERVER_PORT = int(os.getenv('SERVER_PORT', 8007))
     
     # Rutas
     ARCHIVOS_PATH = os.getenv('ARCHIVOS_PATH', '../archivos')

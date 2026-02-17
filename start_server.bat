@@ -7,7 +7,7 @@ echo ========================================
 echo   RCA SERVER - INICIANDO...
 echo ========================================
 echo.
-echo Documentacion: http://localhost:8000/docs
+echo Documentacion: http://localhost:8007/docs
 echo.
 echo Presione Ctrl+C para detener el servidor
 echo.
