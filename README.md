@@ -5,10 +5,11 @@ Sistema de gestión de RCA (Root Cause Analysis) para operaciones industriales c
 ## 🚀 Características
 
 - ✅ Gestión completa de RCAs
+- 🔐 Autenticación JWT con roles (Mantenedor, Supervisor, Gerente)
 - 📊 Análisis 5 Porqués
 - 🐟 Diagrama de Ishikawa
 - 📸 Gestión de archivos y evidencias fotográficas
-- 📈 Estadísticas y reportes
+- 📈 Estadísticas y reportes PDF
 - 📱 Diseñado para tablets industriales
 - 🗄️ Base de datos MySQL
 
@@ -23,7 +24,7 @@ Sistema de gestión de RCA (Root Cause Analysis) para operaciones industriales c
 1. **Clonar el repositorio:**
 ```bash
 git clone <url-del-repositorio>
-cd Proyecto_RCA
+cd RCA_Confiabilidad
 ```
 
 2. **Crear entorno virtual:**
@@ -39,20 +40,8 @@ pip install -r requirements.txt
 ```
 
 4. **Configurar variables de entorno:**
-Editar el archivo `backend/.env` con tus datos:
-```env
-DB_HOST=localhost
-DB_PORT=3306
-DB_USER=root
-DB_PASSWORD=tu_password
-DB_NAME=rca_database
 
-SERVER_HOST=0.0.0.0
-SERVER_PORT=8000
-
-ARCHIVOS_PATH=C:/ruta/completa/al/proyecto/archivos
-RESPALDOS_PATH=C:/ruta/completa/al/proyecto/respaldos
-```
+Copiar `backend/.env.example` a `backend/.env` y editar con tus datos.
 
 5. **Crear base de datos:**
 ```sql
@@ -61,25 +50,20 @@ CREATE DATABASE rca_database CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 ## ▶️ Ejecución
 
-### Opción 1: Usando start_server.bat (Windows)
-```bash
-start_server.bat
-```
-
-### Opción 2: Manual
 ```bash
 cd backend
 python main.py
 ```
 
-El servidor estará disponible en:
-- API: http://192.168.38.14:8000
-- Documentación: http://192.168.38.14:8000/docs
+- **API:** http://localhost:8000
+- **Documentación Swagger:** http://localhost:8000/docs
+
+> 📖 Ver [Guía del Backend](backend/GUIA_BACKEND.md) para instrucciones detalladas de autenticación, roles, endpoints y troubleshooting.
 
 ## 📁 Estructura del Proyecto
 
 ```
-Proyecto_RCA/
+RCA_Confiabilidad/
 ├── backend/
 │   ├── main.py              # Punto de entrada principal
 │   ├── models.py            # Modelos de base de datos
@@ -87,61 +71,58 @@ Proyecto_RCA/
 │   ├── crud.py              # Operaciones CRUD
 │   ├── database.py          # Configuración BD
 │   ├── config.py            # Configuración
-│   ├── routers/             # Endpoints organizados
-│   │   ├── rca.py
-│   │   ├── archivos.py
-│   │   └── reportes.py
-│   └── utils/               # Utilidades
+│   ├── GUIA_BACKEND.md      # Documentación del backend
+│   ├── routers/
+│   │   ├── auth.py          # Autenticación JWT
+│   │   ├── rca.py           # CRUD de RCAs
+│   │   ├── archivos.py      # Gestión de archivos
+│   │   └── reportes.py      # Reportes y estadísticas
+│   ├── scripts/
+│   │   └── crear_usuarios.py
+│   └── utils/
+│       ├── pdf_generator.py
+│       └── backup.py
 ├── archivos/                # Archivos subidos
 │   ├── fotos/
 │   ├── pdfs/
 │   └── evidencias/
-└── requirements.txt
+├── requirements.txt
+└── start_server.bat
 ```
 
 ## 🔌 API Endpoints
 
-### RCA
-- `POST /rca` - Crear RCA
-- `GET /rca` - Listar RCAs
-- `GET /rca/{id}` - Obtener RCA
-- `PUT /rca/{id}` - Actualizar RCA
-- `DELETE /rca/{id}` - Eliminar RCA
+### Autenticación (`/auth`)
+- `POST /auth/login` — Login (obtener token JWT)
+- `POST /auth/registro` — Registrar usuario
+- `GET /auth/me` — Ver perfil actual
+- `GET /auth/usuarios` — Listar usuarios (admin)
 
-### Archivos
-- `POST /archivo/upload` - Subir archivo
-- `GET /archivo?rca_id={id}` - Listar archivos
-- `GET /archivos/fotos/{filename}` - Descargar archivo
+### RCA (`/rca`)
+- `POST /rca` — Crear RCA (incluye 5 porqués e Ishikawa)
+- `GET /rca` — Listar RCAs
+- `GET /rca/{id}` — Obtener RCA completo
+- `PUT /rca/{id}` — Actualizar RCA
+- `DELETE /rca/{id}` — Eliminar RCA
 
-### Análisis
-- `POST /cinco-porques` - Agregar 5 porqués
-- `GET /cinco-porques/{rca_id}` - Obtener 5 porqués
-- `POST /ishikawa` - Agregar causa Ishikawa
-- `GET /ishikawa/{rca_id}` - Obtener Ishikawa
+### Archivos (`/archivo`)
+- `POST /archivo/upload` — Subir archivo
+- `GET /archivo/{rca_id}` — Listar archivos de un RCA
 
-### Reportes
-- `GET /estadisticas/resumen` - Estadísticas generales
-- `GET /reportes/por-area` - Estadísticas por área
-- `GET /reportes/rca/{id}/pdf` - Generar PDF
+### Reportes (`/reportes`)
+- `GET /reportes/estadisticas` — Resumen estadístico
+- `GET /reportes/por-area` — Por área
+- `GET /reportes/por-criticidad` — Por criticidad
+- `GET /reportes/rca/{id}/pdf` — Generar PDF
 
 ## 🛠️ Tecnologías
 
-- **Backend:** FastAPI
+- **Backend:** FastAPI + Uvicorn
 - **Base de datos:** MySQL + SQLAlchemy
+- **Autenticación:** JWT (python-jose) + bcrypt
 - **PDF:** ReportLab
 - **Validación:** Pydantic
 
-## 📝 Notas
-
-- Las imágenes se sirven a través de `/archivos/`
-- Los archivos se almacenan con timestamp único
-- CORS habilitado para conexiones desde tablets
-- El servidor escucha en todas las interfaces (0.0.0.0)
-
-## 🤝 Contribuciones
-
-Proyecto desarrollado para gestión industrial de análisis de causa raíz.
-
 ## 📄 Licencia
 
-Uso interno - Todos los derechos reservados
+Uso interno — Todos los derechos reservados

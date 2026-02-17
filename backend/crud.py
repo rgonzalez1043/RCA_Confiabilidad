@@ -8,8 +8,9 @@ from datetime import datetime
 
 # ==================== RCAs ====================
 def get_rca(db: Session, rca_id: int):
-    """Obtener RCA por ID"""
-    return db.query(models.RCA).filter(models.RCA.id == rca_id).first()
+    """Obtener RCA por ID con cinco_porques e ishikawa"""
+    rca = db.query(models.RCA).filter(models.RCA.id == rca_id).first()
+    return rca
 
 def get_rca_by_codigo(db: Session, codigo: str):
     """Obtener RCA por código"""
@@ -23,21 +24,92 @@ def get_rcas(db: Session, skip: int = 0, limit: int = 100, estado: Optional[str]
     return query.offset(skip).limit(limit).all()
 
 def create_rca(db: Session, rca_data: dict):
-    """Crear nuevo RCA"""
+    """Crear nuevo RCA con cinco_porques e ishikawa"""
+    # Extraer datos relacionados
+    cinco_porques_data = rca_data.pop('cinco_porques', None)
+    ishikawa_data = rca_data.pop('ishikawa', None)
+    
+    # Crear RCA principal (sin cinco_porques e ishikawa)
     db_rca = models.RCA(**rca_data)
     db.add(db_rca)
+    db.commit()
+    db.refresh(db_rca)
+    
+    # Guardar cinco_porques
+    if cinco_porques_data:
+        for nivel, respuesta in enumerate(cinco_porques_data, start=1):
+            if respuesta and respuesta.strip():
+                cp = models.CincoPorques(
+                    rca_id=db_rca.id,
+                    nivel=nivel,
+                    porque=f"¿Por qué {nivel}?",
+                    respuesta=respuesta
+                )
+                db.add(cp)
+    
+    # Guardar ishikawa
+    if ishikawa_data:
+        for categoria, causas in ishikawa_data.items():
+            for causa in causas:
+                if causa and causa.strip():
+                    ish = models.Ishikawa(
+                        rca_id=db_rca.id,
+                        categoria=categoria,
+                        causa=causa
+                    )
+                    db.add(ish)
+    
     db.commit()
     db.refresh(db_rca)
     return db_rca
 
 def update_rca(db: Session, rca_id: int, update_data: dict):
-    """Actualizar RCA"""
+    """Actualizar RCA con cinco_porques e ishikawa"""
     rca = get_rca(db, rca_id)
     if not rca:
         return None
     
+    # Extraer datos relacionados
+    cinco_porques_data = update_data.pop('cinco_porques', None)
+    ishikawa_data = update_data.pop('ishikawa', None)
+    
+    # Actualizar campos principales del RCA
     for key, value in update_data.items():
+        if key == 'fecha_compromiso':
+            print(f"🔄 Actualizando fecha_compromiso: {value}")
         setattr(rca, key, value)
+    
+    # Si se enviaron cinco_porques, reemplazar completamente
+    if cinco_porques_data is not None:
+        # Eliminar registros anteriores
+        db.query(models.CincoPorques).filter(models.CincoPorques.rca_id == rca_id).delete()
+        
+        # Crear nuevos registros
+        for nivel, respuesta in enumerate(cinco_porques_data, start=1):
+            if respuesta and respuesta.strip():
+                cp = models.CincoPorques(
+                    rca_id=rca_id,
+                    nivel=nivel,
+                    porque=f"¿Por qué {nivel}?",
+                    respuesta=respuesta
+                )
+                db.add(cp)
+    
+    # Si se enviaron ishikawa, reemplazar completamente
+    if ishikawa_data is not None:
+        # Eliminar registros anteriores
+        db.query(models.Ishikawa).filter(models.Ishikawa.rca_id == rca_id).delete()
+        
+        # Crear nuevos registros
+        for categoria, causas in ishikawa_data.items():
+            for causa in causas:
+                if causa and causa.strip():
+                    ish = models.Ishikawa(
+                        rca_id=rca_id,
+                        categoria=categoria,
+                        causa=causa
+                    )
+                    db.add(ish)
     
     db.commit()
     db.refresh(rca)
