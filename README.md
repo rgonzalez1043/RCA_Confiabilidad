@@ -50,44 +50,55 @@ CREATE DATABASE rca_database CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 ## ▶️ Ejecución
 
+### Desarrollo
 ```bash
 cd backend
 python main.py
 ```
 
+### Producción (servicio de Windows con NSSM)
+```cmd
+instalar.bat            :: instala dependencias y crea backend/.env
+instalar_servicio.bat   :: registra y arranca el servicio RCAService (como Administrador)
+```
+
 - **API:** http://localhost:8007
 - **Documentación Swagger:** http://localhost:8007/docs
+- **Health-check:** http://localhost:8007/health
 
-> 📖 Ver [Guía del Backend](backend/GUIA_BACKEND.md) para instrucciones detalladas de autenticación, roles, endpoints y troubleshooting.
+> 📖 Ver [Guía del Backend](backend/GUIA_BACKEND.md) para autenticación, roles y endpoints.
+> 📖 Ver [Servicio de Windows](SERVICIO_WINDOWS.md) para despliegue permanente con NSSM.
 
 ## 📁 Estructura del Proyecto
 
 ```
 RCA_Confiabilidad/
 ├── backend/
-│   ├── main.py              # Punto de entrada principal
-│   ├── models.py            # Modelos de base de datos
+│   ├── main.py              # Punto de entrada (app FastAPI)
+│   ├── config.py            # Configuración + .env (rutas absolutas)
+│   ├── database.py          # Engine/pool SQLAlchemy
+│   ├── models.py            # Modelos ORM
 │   ├── schemas.py           # Esquemas Pydantic
 │   ├── crud.py              # Operaciones CRUD
-│   ├── database.py          # Configuración BD
-│   ├── config.py            # Configuración
+│   ├── .env.example         # Plantilla de variables de entorno
 │   ├── GUIA_BACKEND.md      # Documentación del backend
 │   ├── routers/
 │   │   ├── auth.py          # Autenticación JWT
-│   │   ├── rca.py           # CRUD de RCAs
-│   │   ├── archivos.py      # Gestión de archivos
-│   │   └── reportes.py      # Reportes y estadísticas
-│   ├── scripts/
-│   │   └── crear_usuarios.py
+│   │   ├── rca.py           # CRUD de RCAs (protegido)
+│   │   ├── archivos.py      # Upload/listar archivos (protegido)
+│   │   └── reportes.py      # Reportes/estadísticas (protegido)
 │   └── utils/
-│       ├── pdf_generator.py
-│       └── backup.py
-├── archivos/                # Archivos subidos
+│       └── pdf_generator.py # Generación de PDF con ReportLab
+├── archivos/                # Archivos subidos (servidos en /archivos)
 │   ├── fotos/
 │   ├── pdfs/
 │   └── evidencias/
+├── logs/                    # Logs del servicio NSSM (stdout/stderr)
 ├── requirements.txt
-└── start_server.bat
+├── instalar.bat             # Instalación de dependencias
+├── start_server.bat         # Arranque en modo desarrollo
+├── instalar_servicio.bat    # Registro del servicio Windows (NSSM)
+└── SERVICIO_WINDOWS.md      # Guía de despliegue con NSSM
 ```
 
 ## 🔌 API Endpoints

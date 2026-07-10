@@ -41,9 +41,9 @@ ENV/
 *.sqlite
 *.sqlite3
 
-# Logs
+# Logs generales (*.log)
 *.log
-logs/
+# La carpeta logs/ se gestiona más abajo con logs/* y logs/.gitkeep
 
 # OS
 .DS_Store
@@ -61,3 +61,7 @@ archivos/evidencias/*
 
 # Respaldos
 respaldos/
+
+# Logs del servicio (NSSM stdout/stderr)
+logs/*
+!logs/.gitkeep
