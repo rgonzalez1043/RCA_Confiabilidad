@@ -1,7 +1,8 @@
 """API RCA: permisos, validación, revisión y bitácora en una transacción."""
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Header, Response
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 from database import get_db
@@ -31,10 +32,25 @@ def require_revision(rca, if_match):
 
 
 def add_event(db, rca, previous, target, user, comment=None):
+    # El historial se guarda en UTC sin zona; Android lo convierte a hora local.
     db.add(models.RCAHistorial(rca_id=rca.id, estado_anterior=previous,
         estado_nuevo=target, usuario_id=user.id,
         usuario_nombre=user.nombre_completo or user.nombre_usuario,
-        fecha=datetime.utcnow(), comentario=comment))
+        fecha=datetime.now(timezone.utc).replace(tzinfo=None), comentario=comment))
+
+
+def _comparable(key, value):
+    """Forma normalizada para detectar cambios reales de contenido."""
+    if key == 'cinco_porques':
+        whys = [str(text or '').strip() for text in (value or [])]
+        return (whys + [''] * 5)[:5]
+    if key == 'ishikawa':
+        causes = {str(category).strip(): [str(text).strip() for text in (texts or []) if str(text or '').strip()]
+                  for category, texts in (value or {}).items()}
+        return {category: texts for category, texts in causes.items() if texts}
+    if isinstance(value, str):
+        return value.strip() or None
+    return value
 
 
 def apply_fields(rca, data):
@@ -112,8 +128,10 @@ def update_locked(db, rca_id, data, user, if_match, response):
     if target != rca.estado:
         validate_transition(rca.estado, target, {**before, **data}, user)
         if rca.estado == 'Cerrado':
+            # Android reenvía el registro completo; espacios o huecos equivalentes no son cambios.
             changes = {key for key, value in data.items()
-                       if key not in ('estado', 'comentario_transicion') and before.get(key) != value}
+                       if key not in ('estado', 'comentario_transicion')
+                       and _comparable(key, before.get(key)) != _comparable(key, value)}
             if changes:
                 raise HTTPException(409, 'Reabre el RCA antes de modificar su contenido')
         add_event(db, rca, rca.estado, target, user, data.get('comentario_transicion'))
@@ -122,7 +140,8 @@ def update_locked(db, rca_id, data, user, if_match, response):
         require_writable(rca, user)
     apply_fields(rca, data)
     rca.modificado_por = user.nombre_completo or user.nombre_usuario
-    rca.fecha_actualizacion = datetime.utcnow()
+    # Mismo reloj que fecha_creacion y los registros anteriores (hora local de la BD).
+    rca.fecha_actualizacion = func.now()
     try:
         return saved_response(db, rca, response)
     except IntegrityError:

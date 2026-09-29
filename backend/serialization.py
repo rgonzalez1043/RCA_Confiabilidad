@@ -1,7 +1,15 @@
 """Respuesta canónica con revisión de contenido para actualizaciones condicionales."""
 import hashlib
 import json
+from datetime import timezone
 import schemas
+
+
+def utc_to_local(value):
+    """Historial (UTC sin zona) a la hora local sin zona del resto de fechas del RCA."""
+    if value is None:
+        return None
+    return value.replace(tzinfo=timezone.utc).astimezone().replace(tzinfo=None)
 
 
 def convert_rca_to_response(rca):
@@ -22,7 +30,7 @@ def convert_rca_to_response(rca):
             break
         if event.estado_anterior == 'En Análisis' and event.estado_nuevo == 'En Implementación':
             response.aprobado_por = event.usuario_nombre
-            response.fecha_aprobacion = event.fecha
+            response.fecha_aprobacion = utc_to_local(event.fecha)
             response.comentario_aprobacion = event.comentario
             break
     payload = response.model_dump(mode='json', exclude={'revision'})

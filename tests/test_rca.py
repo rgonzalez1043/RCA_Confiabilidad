@@ -96,6 +96,50 @@ def test_complete_workflow_effectiveness_history_and_read_only(client):
     assert [e['estado_nuevo'] for e in events] == ['Abierto', 'En Análisis', 'En Implementación', 'Cerrado', 'En Implementación', 'En Análisis']
 
 
+def android_body(rca, **changes):
+    """Cuerpo como RCA.toJson() de Android: registro completo, milisegundos y alias de horas."""
+    body = {**rca, **changes}
+    body['fecha_evento'] = rca['fecha_evento'] + '.000'
+    body['tiempo_parada'] = body['tiempo_parada_horas'] = rca['tiempo_parada_horas']
+    return body
+
+
+def test_android_full_payload_cycle_and_legacy_whitespace_reopen(client):
+    rca = create(client, tiempo_parada=2.5)
+    rca = update(client, rca, android_body(rca, estado='En Análisis'))
+    rca = update(client, rca, android_body(rca, cinco_porques=['A', 'B', 'C', '', ''],
+        ishikawa={'Equipo': ['A'], 'Mantenimiento': ['B']}, causa_raiz='Plan insuficiente'), 'mantenedor')
+    rca = update(client, rca, android_body(rca, estado='En Implementación'))
+    rca = update(client, rca, android_body(rca, acciones_correctivas='Revisar plan',
+        fecha_compromiso='2026-09-29', verificacion_efectividad='Sin recurrencia',
+        fecha_verificacion=date.today().isoformat(), efectivo=True), 'mantenedor')
+    rca = update(client, rca, android_body(rca, estado='Cerrado'))
+    with SessionLocal() as db:
+        # Registros de la versión 1.1.0 podían guardar espacios que la API actual recorta.
+        db.get(models.RCA, rca['id']).acciones_correctivas = 'Revisar plan  \n'
+        db.commit()
+    rca = client.get(f'/rca/{rca["id"]}', headers=headers()).json()
+    update(client, rca, android_body(rca, estado='En Implementación', titulo='Otro'), expected=409)
+    reopened = update(client, rca, android_body(rca, estado='En Implementación'))
+    assert reopened['fecha_cierre'] is None
+    assert reopened['tiempo_parada_horas'] == 2.5
+    assert client.get(f'/rca/{rca["id"]}', headers=headers()).json() == reopened
+
+
+def test_approval_date_uses_local_clock_like_other_rca_dates(client):
+    from datetime import datetime
+    from serialization import utc_to_local
+    rca = create(client)
+    rca = update(client, rca, {'estado': 'En Análisis'})
+    rca = update(client, rca, {'estado': 'En Implementación', 'cinco_porques': ['A', 'B', 'C'],
+        'ishikawa': {'Equipo': ['A'], 'Mantenimiento': ['B']}, 'causa_raiz': 'Plan insuficiente'})
+    events = client.get(f'/rca/{rca["id"]}/historial', headers=headers()).json()
+    # Android interpreta el historial como UTC y las fechas del RCA como hora local.
+    expected = utc_to_local(datetime.fromisoformat(events[-1]['fecha']))
+    assert datetime.fromisoformat(rca['fecha_aprobacion']) == expected
+    assert rca['fecha_actualizacion']
+
+
 def test_duplicate_code_conflict_and_delete_draft(client):
     rca = create(client)
     assert client.post('/rca', json=payload(), headers=headers()).status_code == 409

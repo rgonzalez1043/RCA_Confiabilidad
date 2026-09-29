@@ -1,6 +1,8 @@
 ﻿# Integración Android y backend RCA — 29/09/2026
 
-El backend real revisado está en `C:\Python Projects\RCA_Confiabilidad` y la aplicación en `C:\Android Projects\rca_app`. La ruta encontrada no contiene la subcarpeta `RCA\_Confiabilidad`. Los cambios se prepararon y probaron localmente; no se desplegaron en `192.168.38.14`, no se reinició su servicio y no se accedió a sus datos. Este equipo está en otra red.
+En el PC de desarrollo actual, el backend está en `C:\1.-Proyectos\RCA_Confiabilidad` y la aplicación en `C:\3.- Aplicaciones Android\rca_app`. En el PC anterior estaban en `C:\Python Projects\RCA_Confiabilidad` y `C:\Android Projects\rca_app`. Las rutas del servidor deben confirmarse en el propio servidor.
+
+**Estado verificado el 29/09/2026 desde la LAN (192.168.37.163):** `http://192.168.38.14:8007` responde y `/health` informa la base de datos conectada, pero el servicio ejecuta la versión **1.1.0**. Faltan `/rca/{id}/historial`, `/archivo/{id}/contenido` y DELETE de evidencias. La versión 1.2.0 no está desplegada y su servicio no se reinició. No se accedió a la base de datos ni a los archivos del servidor.
 
 ## Contrato que ahora comparten
 
@@ -9,7 +11,8 @@ El backend real revisado está en `C:\Python Projects\RCA_Confiabilidad` y la ap
 - `revision` identifica la versión devuelta por la API. PUT y DELETE de RCA, así como los POST antiguos de porqués e Ishikawa, exigen `If-Match: "<revision>"`. Falta de versión devuelve 428; versión desactualizada, 412. El cliente detiene reintentos automáticos, conserva su borrador de análisis y permite copiarlo antes de recargar.
 - Todas las escrituras del RCA y las evidencias bloquean la fila padre durante la transacción. MySQL debe usar InnoDB; las conexiones usan READ COMMITTED. Las pruebas locales de SQLite comprueban rechazos de revisiones antiguas, pero no prueban bloqueos simultáneos reales en MySQL.
 - La identidad del creador, modificador, aprobador y autor de transición proviene de la sesión del servidor. Los metadatos enviados por el cliente no sustituyen esa identidad.
-- Activos de rol Mantenedor, Supervisor o Gerente pueden editar. Solo Supervisor o Gerente puede avanzar o retroceder una etapa. Cerrado y Cancelado son de consulta. La reapertura de Cerrado a En Implementación no permite modificar contenido en la misma petición.
+- Activos de rol Mantenedor, Supervisor o Gerente pueden editar. Solo Supervisor o Gerente puede avanzar o retroceder una etapa. Cerrado y Cancelado son de consulta. La reapertura de Cerrado a En Implementación no permite modificar contenido en la misma petición. Se acepta el registro completo que reenvía Android; las diferencias solo de espacios, como en registros guardados por la versión 1.1.0, no se consideran cambios.
+- `fecha_evento`, `fecha_creacion`, `fecha_actualizacion` y `fecha_aprobacion` se entregan sin zona horaria, en hora local del servidor, igual que en la versión 1.1.0. Solo `fecha` de `/rca/{id}/historial` se entrega en UTC sin zona; Android la convierte a hora local.
 - Para iniciar análisis se requiere título, falla y criticidad. Para implementar, además, los tres primeros porqués, dos categorías Ishikawa con causas y causa raíz. Para cerrar se añaden acciones correctivas, responsable, fecha compromiso, resultado de verificación, fecha de verificación no futura y efectividad confirmada.
 - `/rca/{id}/historial` expone creación y transiciones con autor, fecha UTC y comentario. La app lo muestra desde el menú del detalle. El historial registra etapas, no cada modificación de contenido. La aprobación vigente se deriva del paso de análisis a implementación; volver a análisis la invalida. No se inventan aprobaciones históricas.
 - Solo se pueden eliminar borradores en Abierto sin transiciones ni evidencias; se conserva el historial de casos ya iniciados.
@@ -24,7 +27,7 @@ Esta actualización requiere coordinar API y aplicación: los clientes antiguos 
 
 1. En una ventana de mantenimiento, respaldar la base MySQL, los archivos adjuntos, la configuración y el código vigente. Conservar la clave de firma Android y `SECRET_KEY` del servidor.
 2. Verificar que las tablas operativas usan InnoDB, que el esquema corresponde al modelo revisado y que el usuario de servicio tiene permiso para crear la tabla nueva. No ejecutar las pruebas contra una copia de producción conectada a MySQL: la suite ya fuerza SQLite temporal.
-3. Detener RCAService en el servidor y, desde su repositorio en la rama `main`, ejecutar `git pull --ff-only`. Mantener su `.env`, entorno Python, carpetas `archivos`, `logs` y `respaldos`. Si Git informa cambios locales o divergencia, resolverlos sin descartar el trabajo del servidor antes de continuar. No copiar el entorno de pruebas ni sustituir configuraciones con las de este PC.
+3. Detener RCAService en el servidor y, desde su repositorio en la rama `main`, ejecutar `git pull --ff-only`. Mantener su `.env`, entorno Python, carpetas `archivos`, `logs` y `respaldos`. Si Git informa cambios locales o divergencia, resolverlos sin descartar el trabajo del servidor antes de continuar. No copiar el entorno de pruebas ni sustituir configuraciones con las de este PC. La versión 1.2.0 no añade dependencias: ejecutar `pip install -r requirements.txt` con el Python del entorno del servicio solo como comprobación. No recrear ese entorno con Python 3.13: las versiones fijadas, por ejemplo `pydantic==2.5.0`, requieren Python 3.10–3.12.
 4. Al iniciar, `Base.metadata.create_all()` crea `rca_historial` si falta. No se renombra ni altera ninguna columna existente. Los registros anteriores permanecen y comienzan a acumular historial desde su próxima transición. Si la BD real difiere del modelo, preparar una migración explícita antes de iniciar.
 5. Iniciar el servicio y comprobar `/health`, `/openapi.json` y versión 1.2.0. Revisar errores de permisos/esquema en los logs. No definir `RCA_TESTING=1` en un servicio real.
 6. Distribuir una compilación de la app con la firma habitual y la URL correcta. El APK debug de la revisión sirve para pruebas; no sustituye una entrega firmada ni garantiza actualización sobre una instalación firmada con otra clave.
@@ -62,6 +65,8 @@ py -3.10 -m venv .venv-test
 ```
 
 La suite configura SQLite en memoria, una clave JWT de prueba y carpetas temporales antes de importar la aplicación. No carga `.env` ni abre MySQL. Las dependencias de producción permanecen fijadas en `requirements.txt`; no se realizó una actualización masiva del entorno existente.
+
+Si el PC solo tiene Python 3.13, las versiones fijadas no se instalan. El 29/09/2026, las **21 pruebas** se ejecutaron en un entorno temporal con versiones compatibles: FastAPI 0.115.6, Pydantic 2.10.6, SQLAlchemy 2.0.36, Pillow 11.1.0 y ReportLab 4.2.5. `requirements.txt` no se modificó. Ese PC no tenía Flutter; las correcciones del backend de ese día mantienen la compatibilidad con la APK del commit Android `4efe1c4`.
 
 ## Límites de esta validación
 
