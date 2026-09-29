@@ -154,8 +154,22 @@ $registro = "HKLM:\SYSTEM\CurrentControlSet\Services\$Servicio\Parameters"
 $servicioExiste = [bool](Get-Service -Name $Servicio -ErrorAction SilentlyContinue)
 if ($servicioExiste -and (Test-Path $registro)) {
     $nssm = Get-ItemProperty $registro
-    if (-not $Destino) { $Destino = Split-Path $nssm.AppDirectory.TrimEnd('\') -Parent }
-    if (-not $Python) { $Python = $nssm.Application }
+    $directorio = ([string]$nssm.AppDirectory).TrimEnd('\')
+    if (-not $Destino -and $directorio) {
+        # AppDirectory suele ser ...\backend, pero puede ser la raíz del proyecto.
+        if (Test-Path -LiteralPath (Join-Path $directorio 'backend\main.py')) { $Destino = $directorio }
+        else { $Destino = Split-Path $directorio -Parent }
+    }
+    if (-not $Python) {
+        $aplicacion = [string]$nssm.Application
+        # NSSM puede lanzar python.exe, uvicorn.exe o un .bat; se necesita el python.exe del entorno.
+        if ((Split-Path $aplicacion -Leaf) -like 'python*.exe') { $Python = $aplicacion }
+        elseif ($aplicacion -and (Test-Path -LiteralPath (Join-Path (Split-Path $aplicacion) 'python.exe'))) {
+            $Python = Join-Path (Split-Path $aplicacion) 'python.exe'
+        } elseif ($Destino -and (Test-Path -LiteralPath (Join-Path $Destino 'venv\Scripts\python.exe'))) {
+            $Python = Join-Path $Destino 'venv\Scripts\python.exe'
+        }
+    }
     $appParams = [string]$nssm.AppParameters
     $stderrLog = $nssm.AppStderr
 }

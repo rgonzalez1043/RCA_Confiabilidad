@@ -29,8 +29,16 @@ Frase para retomar: **«Revisa CONTINUAR_EN_SERVIDOR.md y continúa las pruebas 
 - Correcciones del backend, compatibles con la APK `4efe1c4`:
   1. Reabrir un RCA cerrado desde Android devolvía 409 si el registro tenía espacios sobrantes, como los guardados por la versión 1.1.0. Ahora la comparación ignora esas diferencias; una prueba reproduce el caso.
   2. `fecha_actualizacion` se guardaba en UTC y `fecha_aprobacion` se entregaba en UTC, mientras Android las interpreta como hora local. Esto desplazaba de 3 a 4 horas la fecha del PDF de Android. Ahora ambas usan la hora local, igual que `fecha_creacion`. El historial sigue en UTC porque Android ya lo convierte.
-- Backend: **21 pruebas aprobadas**, ejecutadas con Python 3.13 y versiones compatibles en un entorno temporal. Las versiones fijadas requieren Python 3.10–3.12. Este PC no tiene Flutter ni adb, así que no se compiló ni probó la APK.
-- Pendiente: ejecutar la actualización desde una consola del servidor (pasos 2 y 3 de este documento). Después, realizar las pruebas reales con una cuenta autorizada.
+- Backend: **21 pruebas aprobadas**, ejecutadas con Python 3.13 y versiones compatibles en un entorno temporal. Las versiones fijadas requieren Python 3.10–3.12.
+- **Paquete ZIP de actualización.** El usuario prefirió llevar un ZIP al servidor y acceder por VNC; RDP no está habilitado. Se añadieron `VERIFICAR_SERVIDOR.bat`, `ACTUALIZAR_SERVIDOR.bat`, `actualizar_servidor.ps1` y `backend/verificar_despliegue.py`. `rca_historial` se crea explícitamente como InnoDB/utf8mb4. El ZIP incluye `versiones_conocidas.txt`, que no está en Git, para detectar cambios locales no publicados.
+- **Prueba en un servidor simulado** (MariaDB 10.11 local e instalación 1.1.0 con datos heredados: foto guardada por 1.1.0, RCA cerrado con espacios y contraseña de BD con caracteres especiales):
+  - Verificación de solo lectura correcta. Detectó un archivo modificado localmente y un usuario de BD sin permiso CREATE.
+  - Ante un fallo simulado del arranque, el script revirtió a 1.1.0 y dejó la API en línea.
+  - La actualización a 1.2.0 fue correcta, con respaldo de código, `.env`, adjuntos y `mysqldump`.
+  - Integración sobre InnoDB: 20/20 comprobaciones de 1.2.0. Incluyen 5 rondas de guardado simultáneo con la misma revisión (uno 200 y otro 412), la cuota de 10 fotos con 5 cargas simultáneas, la foto y la ruta `/archivos/` heredadas con sesión, la reapertura del cerrado heredado con el cuerpo de Android, el flujo completo, el historial, el PDF y la clave foránea de `rca_historial`.
+  - El servicio NSSM se sustituyó por funciones de prueba, porque este PC no tiene permisos de administrador.
+- **Hallazgo sobre datos de producción:** la app anterior enviaba `tiempo_parada` y la API 1.1.0 solo aceptaba `tiempo_parada_horas`. Las horas de parada de los RCA existentes no se guardaron y no se pueden recuperar desde el servidor. La versión 1.2.0 acepta ambos nombres.
+- Pendiente: ejecutar el paquete en el servidor real (`INSTRUCCIONES.txt` de la entrega) y las pruebas en la tablet.
 
 ## Cambios que hay que validar en conjunto
 
