@@ -62,6 +62,8 @@ class RCA(Base):
 class RCAHistorial(Base):
     """Bitácora de cambios de etapa: identidad y fecha asignadas en el servidor."""
     __tablename__ = "rca_historial"
+    # La clave foránea exige InnoDB aunque el motor por defecto del servidor sea otro.
+    __table_args__ = {"mysql_engine": "InnoDB", "mysql_charset": "utf8mb4"}
     id = Column(Integer, primary_key=True)
     rca_id = Column(Integer, ForeignKey('rcas.id', ondelete='CASCADE'), nullable=False, index=True)
     estado_anterior = Column(String(30))

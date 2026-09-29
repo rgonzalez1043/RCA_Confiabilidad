@@ -25,6 +25,12 @@ En el PC de desarrollo actual, el backend está en `C:\1.-Proyectos\RCA_Confiabi
 
 Esta actualización requiere coordinar API y aplicación: los clientes antiguos no envían revisión y las fotos dejan de ser públicas. La APK nueva requiere este backend para aprovechar todas las garantías.
 
+Los pasos 1 a 5 están automatizados en `VERIFICAR_SERVIDOR.bat` y `ACTUALIZAR_SERVIDOR.bat`, incluidos en el paquete ZIP; ver [SERVICIO_WINDOWS.md](SERVICIO_WINDOWS.md), sección 8. El script:
+
+- Se detiene sin modificar nada si el Python del servicio no puede importar la versión nueva, si faltan columnas o si `rcas` no usa InnoDB.
+- Respalda código, adjuntos y MySQL con `mysqldump`.
+- Si la API no responde con la versión nueva, restaura el código anterior.
+
 1. En una ventana de mantenimiento, respaldar la base MySQL, los archivos adjuntos, la configuración y el código vigente. Conservar la clave de firma Android y `SECRET_KEY` del servidor.
 2. Verificar que las tablas operativas usan InnoDB, que el esquema corresponde al modelo revisado y que el usuario de servicio tiene permiso para crear la tabla nueva. No ejecutar las pruebas contra una copia de producción conectada a MySQL: la suite ya fuerza SQLite temporal.
 3. Detener RCAService en el servidor y, desde su repositorio en la rama `main`, ejecutar `git pull --ff-only`. Mantener su `.env`, entorno Python, carpetas `archivos`, `logs` y `respaldos`. Si Git informa cambios locales o divergencia, resolverlos sin descartar el trabajo del servidor antes de continuar. No copiar el entorno de pruebas ni sustituir configuraciones con las de este PC. La versión 1.2.0 no añade dependencias: ejecutar `pip install -r requirements.txt` con el Python del entorno del servicio solo como comprobación. No recrear ese entorno con Python 3.13: las versiones fijadas, por ejemplo `pydantic==2.5.0`, requieren Python 3.10–3.12.

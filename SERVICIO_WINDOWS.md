@@ -140,13 +140,18 @@ Para que las tablets puedan llegar al servidor:
 
 ## 8. Actualizar el código
 
-1. Copiar los nuevos archivos del proyecto.
-2. Reiniciar el servicio:
-   ```cmd
-   nssm restart RCAService
-   ```
+Con el paquete ZIP de una versión, descomprimirlo **fuera** de la instalación, por ejemplo en el Escritorio, y ejecutar como Administrador:
 
-> No hace falta reinstalar dependencias salvo que cambie `requirements.txt`.
+1. `VERIFICAR_SERVIDOR.bat`: realiza comprobaciones de solo lectura del Python del servicio, las dependencias, el esquema MySQL/InnoDB y los cambios locales no publicados. No detiene nada.
+2. `ACTUALIZAR_SERVIDOR.bat`:
+   - Respalda código, `.env`, adjuntos y base de datos en `respaldos\`.
+   - Copia el código nuevo conservando `.env`, `venv`, `archivos`, `logs` y `respaldos`.
+   - Reinicia `RCAService` y comprueba la API.
+   - Si la API no responde con la versión nueva, restaura el código anterior automáticamente.
+
+Si la instalación es un repositorio Git, la alternativa es `git pull --ff-only` seguido de `Restart-Service RCAService`.
+
+> No hace falta reinstalar dependencias salvo que cambie `requirements.txt`. El verificador lo comprueba; `ACTUALIZAR_SERVIDOR.bat -InstalarDependencias` las instala si faltan.
 
 ---
 
