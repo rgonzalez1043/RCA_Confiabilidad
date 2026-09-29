@@ -2,7 +2,7 @@
 
 En el PC de desarrollo actual, el backend está en `C:\1.-Proyectos\RCA_Confiabilidad` y la aplicación en `C:\3.- Aplicaciones Android\rca_app`. En el PC anterior estaban en `C:\Python Projects\RCA_Confiabilidad` y `C:\Android Projects\rca_app`. Las rutas del servidor deben confirmarse en el propio servidor.
 
-**Estado verificado el 29/09/2026 desde la LAN (192.168.37.163):** `http://192.168.38.14:8007` responde y `/health` informa la base de datos conectada, pero el servicio ejecuta la versión **1.1.0**. Faltan `/rca/{id}/historial`, `/archivo/{id}/contenido` y DELETE de evidencias. La versión 1.2.0 no está desplegada y su servicio no se reinició. No se accedió a la base de datos ni a los archivos del servidor.
+**Estado verificado el 29/09/2026 desde un PC de la LAN:** `http://192.168.38.14:8007` responde y `/health` informa la base de datos conectada, pero el servicio ejecuta la versión **1.1.0**. Faltan `/rca/{id}/historial`, `/archivo/{id}/contenido` y DELETE de evidencias. La versión 1.2.0 no está desplegada y su servicio no se reinició. No se accedió a la base de datos ni a los archivos del servidor.
 
 ## Contrato que ahora comparten
 

@@ -22,8 +22,8 @@ Frase para retomar: **«Revisa CONTINUAR_EN_SERVIDOR.md y continúa las pruebas 
 
 ## Sesión del 29/09/2026 en el PC con acceso a la LAN
 
-- PC `3KGCRW3`, IP `192.168.37.163`. Rutas: backend en `C:\1.-Proyectos\RCA_Confiabilidad`; Android en `C:\3.- Aplicaciones Android\rca_app`. Ambos repositorios estaban limpios y coincidían con `origin/main` antes de empezar.
-- Desde este PC, `192.168.38.14` acepta conexiones en 8007 (API), 445 y 3306; no en 3389, 5985/5986 ni 22. No se usó SMB ni MySQL: no hay una consola autorizada del servidor en esta sesión.
+- PC de desarrollo en la misma LAN. Rutas: backend en `C:\1.-Proyectos\RCA_Confiabilidad`; Android en `C:\3.- Aplicaciones Android\rca_app`. Ambos repositorios estaban limpios y coincidían con `origin/main` antes de empezar.
+- Desde este PC solo se consultó la API. El acceso administrativo al servidor se hace por VNC, no por escritorio remoto. No se accedió a la base de datos ni a los archivos del servidor.
 - Comprobaciones de solo lectura: `/` y `/openapi.json` informan **1.1.0**; `/health` informa BD conectada. Faltan `/rca/{id}/historial`, `/archivo/{id}/contenido` y DELETE de evidencias. **La versión 1.2.0 sigue sin desplegarse.**
 - Revisión del código de ambos proyectos. El esquema 1.2.0 solo añade la tabla `rca_historial`. Las rutas de evidencias de 1.1.0 (`fotos/<nombre>`) siguen siendo compatibles. La actualización no añade dependencias; Pillow ya estaba en `requirements.txt`.
 - Correcciones del backend, compatibles con la APK `4efe1c4`:
@@ -38,6 +38,7 @@ Frase para retomar: **«Revisa CONTINUAR_EN_SERVIDOR.md y continúa las pruebas 
   - Integración sobre InnoDB: 20/20 comprobaciones de 1.2.0. Incluyen 5 rondas de guardado simultáneo con la misma revisión (uno 200 y otro 412), la cuota de 10 fotos con 5 cargas simultáneas, la foto y la ruta `/archivos/` heredadas con sesión, la reapertura del cerrado heredado con el cuerpo de Android, el flujo completo, el historial, el PDF y la clave foránea de `rca_historial`.
   - El servicio NSSM se sustituyó por funciones de prueba, porque este PC no tiene permisos de administrador.
 - **Hallazgo sobre datos de producción:** la app anterior enviaba `tiempo_parada` y la API 1.1.0 solo aceptaba `tiempo_parada_horas`. Las horas de parada de los RCA existentes no se guardaron y no se pueden recuperar desde el servidor. La versión 1.2.0 acepta ambos nombres.
+- **APK:** en este PC se instalaron Flutter 3.38.10, JDK 17 y el Android SDK en el perfil del usuario, sin permisos de administrador. `flutter analyze` no encontró problemas. La compilación y las pruebas fallan porque la política de seguridad del equipo deniega la ejecución de `impellerc.exe`, el compilador de shaders de Flutter; no se intentó eludirla. La APK de prueba se compila en GitHub Actions (`.github/workflows/apk.yml`), que también ejecuta `analyze` y las pruebas. Se descarga desde Actions > ejecución > Artifacts.
 - Pendiente: ejecutar el paquete en el servidor real (`INSTRUCCIONES.txt` de la entrega) y las pruebas en la tablet.
 
 ## Cambios que hay que validar en conjunto
