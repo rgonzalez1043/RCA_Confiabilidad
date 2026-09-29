@@ -1,20 +1,21 @@
-"""
+﻿"""
 Autenticación JWT, registro y gestión de usuarios.
 """
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 
 from config import config
 from database import get_db
 from models import Usuario
-from schemas import UsuarioLogin, UsuarioResponse, Token, UsuarioCreate
+from schemas import UsuarioResponse, Token, UsuarioCreate
 
 logger = logging.getLogger("rca.auth")
 
@@ -31,7 +32,12 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login", auto_error=False)
 
 # ==================== FUNCIONES AUXILIARES ====================
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
+    if len(plain_password.encode('utf-8')) > 72:
+        return False
+    try:
+        return pwd_context.verify(plain_password, hashed_password)
+    except (ValueError, TypeError):
+        return False
 
 
 def get_password_hash(password: str) -> str:
@@ -54,7 +60,7 @@ def authenticate_user(db: Session, email: str, password: str):
     return usuario
 
 
-async def get_current_active_user(
+def get_current_active_user(
     token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db),
 ) -> Usuario:
@@ -89,7 +95,7 @@ async def get_current_active_user(
     return usuario
 
 
-async def verificar_permiso_admin(
+def verificar_permiso_admin(
     current_user: Usuario = Depends(get_current_active_user),
 ) -> Usuario:
     """Solo Supervisor o Gerente."""
@@ -104,7 +110,7 @@ async def verificar_permiso_admin(
 
 # ==================== ENDPOINTS ====================
 @router.post("/login", response_model=Token)
-async def login(
+def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),
 ):
@@ -145,51 +151,20 @@ async def login(
             "email": usuario.email,
             "rol": usuario.rol,
             "area": usuario.area,
+            "activo": usuario.activo,
         },
     }
 
 
 @router.post("/registro", response_model=UsuarioResponse, status_code=status.HTTP_201_CREATED)
-async def registrar_usuario(
+def registrar_usuario(
     usuario_data: UsuarioCreate,
     db: Session = Depends(get_db),
-    token: Optional[str] = Depends(oauth2_scheme),
+    current_user: Usuario = Depends(verificar_permiso_admin),
 ):
-    """
-    Registrar un nuevo usuario.
-
-    - Si NO hay usuarios en la BD → permite crear el primero SIN autenticación.
-    - Si ya hay usuarios → requiere token válido y rol Supervisor/Gerente.
-    """
-    total_usuarios = db.query(Usuario).count()
-
-    if total_usuarios > 0:
-        if not token:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Debes estar autenticado para crear usuarios.",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        try:
-            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-            email = payload.get("sub")
-            if email is None:
-                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido")
-        except JWTError:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido o expirado")
-
-        current_user = db.query(Usuario).filter(Usuario.email == email).first()
-        if not current_user:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuario no encontrado")
-
-        if current_user.rol not in ["Supervisor", "Gerente"]:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"No tienes permisos. Solo Supervisor y Gerente pueden crear usuarios. Tu rol: {current_user.rol}",
-            )
-    else:
-        logger.warning("Creando PRIMER usuario del sistema (sin autenticación requerida)")
-
+    """Crear usuarios requiere un administrador activo; el primero se crea por CLI."""
+    if usuario_data.rol == 'Gerente' and current_user.rol != 'Gerente':
+        raise HTTPException(403, 'Solo un Gerente puede crear otro Gerente')
     # Validar duplicados
     if db.query(Usuario).filter(Usuario.email == usuario_data.email).first():
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El email ya está registrado")
@@ -206,7 +181,11 @@ async def registrar_usuario(
         activo=True,
     )
     db.add(nuevo_usuario)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(409, 'El email o nombre de usuario ya existe')
     db.refresh(nuevo_usuario)
 
     logger.info("Usuario creado email=%s rol=%s", nuevo_usuario.email, nuevo_usuario.rol)
@@ -214,15 +193,15 @@ async def registrar_usuario(
 
 
 @router.get("/me", response_model=UsuarioResponse)
-async def get_current_user(current_user: Usuario = Depends(get_current_active_user)):
+def get_current_user(current_user: Usuario = Depends(get_current_active_user)):
     """Perfil del usuario autenticado."""
     return current_user
 
 
 @router.get("/usuarios", response_model=list[UsuarioResponse])
-async def listar_usuarios(
-    skip: int = 0,
-    limit: int = 100,
+def listar_usuarios(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(verificar_permiso_admin),
 ):
@@ -232,6 +211,6 @@ async def listar_usuarios(
 
 
 @router.post("/logout")
-async def logout():
+def logout():
     """Logout: el cliente debe eliminar el token localmente."""
     return {"message": "Sesión cerrada correctamente"}

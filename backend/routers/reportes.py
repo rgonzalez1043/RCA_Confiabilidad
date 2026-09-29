@@ -4,11 +4,13 @@ Endpoints para reportes y estadísticas.
 import logging
 import os
 import re
+from uuid import uuid4
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
-from sqlalchemy import func
+from starlette.background import BackgroundTask
+from sqlalchemy import func, case
 from sqlalchemy.orm import Session
 
 from config import config
@@ -17,6 +19,7 @@ from routers.auth import get_current_active_user
 import crud
 import models
 from utils.pdf_generator import generar_reporte_rca
+from serialization import convert_rca_to_response
 
 logger = logging.getLogger("rca.reportes")
 
@@ -48,7 +51,7 @@ def estadisticas_por_area(db: Session = Depends(get_db)):
         db.query(
             models.RCA.area,
             func.count(models.RCA.id).label("total"),
-            func.count(models.RCA.id).filter(models.RCA.estado == "Cerrado").label("cerrados"),
+            func.sum(case((models.RCA.estado == "Cerrado", 1), else_=0)).label("cerrados"),
         )
         .group_by(models.RCA.area)
         .all()
@@ -85,34 +88,25 @@ def generar_pdf_rca(rca_id: int, db: Session = Depends(get_db)):
     if not rca:
         raise HTTPException(status_code=404, detail="RCA no encontrado")
 
-    rca_dict = {
-        "codigo": rca.codigo or "N/A",
-        "titulo": rca.titulo or "N/A",
-        "fecha_evento": str(rca.fecha_evento) if rca.fecha_evento else "N/A",
-        "area": rca.area or "N/A",
-        "equipo": rca.equipo or "N/A",
-        "criticidad": rca.criticidad or "N/A",
-        "estado": rca.estado or "N/A",
-        "responsable": rca.responsable or "N/A",
-        "descripcion_falla": rca.descripcion_falla or "N/A",
-        "causa_raiz": rca.causa_raiz or "N/A",
-        "acciones_correctivas": rca.acciones_correctivas or "N/A",
-    }
+    rca_dict = convert_rca_to_response(rca).model_dump(mode='json')
 
     # Nombre de archivo sanitizado (sin path traversal)
     nombre_seguro = f"RCA_{_safe_slug(rca.codigo)}.pdf"
     pdf_dir = Path(config.ARCHIVOS_PATH) / "pdfs"
     pdf_dir.mkdir(parents=True, exist_ok=True)
-    pdf_path = pdf_dir / nombre_seguro
+    pdf_path = pdf_dir / f"reporte_{uuid4().hex}.pdf"
 
     try:
         generar_reporte_rca(rca_dict, str(pdf_path))
     except Exception as e:
         logger.exception("Error generando PDF para RCA %s", rca_id)
-        raise HTTPException(status_code=500, detail=f"Error al generar PDF: {str(e)}")
+        pdf_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail="No se pudo generar el PDF")
 
     return FileResponse(
         path=str(pdf_path),
         media_type="application/pdf",
         filename=nombre_seguro,
+        background=BackgroundTask(pdf_path.unlink, missing_ok=True),
+        headers={'Cache-Control': 'private, no-store'},
     )

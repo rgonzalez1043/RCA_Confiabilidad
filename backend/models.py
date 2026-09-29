@@ -55,6 +55,21 @@ class RCA(Base):
     # Relaciones
     cinco_porques_rel = relationship("CincoPorques", back_populates="rca", cascade="all, delete-orphan")
     ishikawa_rel = relationship("Ishikawa", back_populates="rca", cascade="all, delete-orphan")
+    historial_rel = relationship("RCAHistorial", cascade="all, delete-orphan",
+                                order_by="RCAHistorial.id")
+
+
+class RCAHistorial(Base):
+    """Bitácora de cambios de etapa: identidad y fecha asignadas en el servidor."""
+    __tablename__ = "rca_historial"
+    id = Column(Integer, primary_key=True)
+    rca_id = Column(Integer, ForeignKey('rcas.id', ondelete='CASCADE'), nullable=False, index=True)
+    estado_anterior = Column(String(30))
+    estado_nuevo = Column(String(30), nullable=False)
+    usuario_id = Column(Integer, nullable=False)
+    usuario_nombre = Column(String(100), nullable=False)
+    fecha = Column(DateTime, nullable=False, default=func.now())
+    comentario = Column(Text)
 
 
 class CincoPorques(Base):

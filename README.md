@@ -2,6 +2,8 @@
 
 Sistema de gestión de RCA (Root Cause Analysis) para operaciones industriales con análisis 5 Porqués y Diagrama de Ishikawa.
 
+Actualización 1.2.0: [contrato Android, pruebas y despliegue coordinado](INTEGRACION_ANDROID.md). Las escrituras requieren revisión de versión; las evidencias requieren autenticación. Esta guía de integración prevalece sobre ejemplos antiguos de los endpoints.
+
 ## 🚀 Características
 
 - ✅ Gestión completa de RCAs
@@ -15,7 +17,7 @@ Sistema de gestión de RCA (Root Cause Analysis) para operaciones industriales c
 
 ## 📋 Requisitos
 
-- Python 3.8+
+- Python 3.10+
 - MySQL 5.7+
 - pip
 
@@ -105,7 +107,7 @@ RCA_Confiabilidad/
 
 ### Autenticación (`/auth`)
 - `POST /auth/login` — Login (obtener token JWT)
-- `POST /auth/registro` — Registrar usuario
+- `POST /auth/registro` — Registrar usuario (administrador activo; primer usuario mediante `backend/bootstrap_admin.py`)
 - `GET /auth/me` — Ver perfil actual
 - `GET /auth/usuarios` — Listar usuarios (admin)
 
@@ -113,12 +115,15 @@ RCA_Confiabilidad/
 - `POST /rca` — Crear RCA (incluye 5 porqués e Ishikawa)
 - `GET /rca` — Listar RCAs
 - `GET /rca/{id}` — Obtener RCA completo
-- `PUT /rca/{id}` — Actualizar RCA
-- `DELETE /rca/{id}` — Eliminar RCA
+- `PUT /rca/{id}` — Actualizar RCA, con `If-Match` y validación de rol/etapa
+- `DELETE /rca/{id}` — Eliminar borrador sin transiciones ni adjuntos, con `If-Match`
+- `GET /rca/{id}/historial` — Consultar creación y transiciones
 
 ### Archivos (`/archivo`)
 - `POST /archivo/upload` — Subir archivo
 - `GET /archivo/{rca_id}` — Listar archivos de un RCA
+- `GET /archivo/{id}/contenido` — Descargar evidencia con sesión activa
+- `DELETE /archivo/{id}` — Eliminar evidencia de un RCA editable
 
 ### Reportes (`/reportes`)
 - `GET /reportes/estadisticas` — Resumen estadístico

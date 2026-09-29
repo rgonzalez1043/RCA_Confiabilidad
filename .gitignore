@@ -65,3 +65,7 @@ respaldos/
 # Logs del servicio (NSSM stdout/stderr)
 logs/*
 !logs/.gitkeep
+
+# Pruebas locales
+.venv-test/
+.pytest_cache/

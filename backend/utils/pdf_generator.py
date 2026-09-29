@@ -1,84 +1,50 @@
-"""
-Utilidad para generar reportes PDF de RCAs
-"""
-from reportlab.lib.pagesizes import letter, A4
-from reportlab.lib import colors
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
-from reportlab.lib.units import inch
+"""Reporte paginado: texto escapado, herramientas de análisis y cierre verificable."""
 from datetime import datetime
-import os
+from xml.sax.saxutils import escape
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+
 
 def generar_reporte_rca(rca_data: dict, output_path: str):
-    """
-    Genera un PDF con el reporte completo de un RCA
-    """
-    doc = SimpleDocTemplate(output_path, pagesize=A4)
-    elementos = []
     styles = getSampleStyleSheet()
-    
-    # Estilo personalizado
-    titulo_style = ParagraphStyle(
-        'TituloRCA',
-        parent=styles['Heading1'],
-        fontSize=16,
-        textColor=colors.HexColor('#1a5490'),
-        spaceAfter=12
-    )
-    
-    # Título
-    titulo = Paragraph(f"REPORTE RCA - {rca_data.get('codigo', 'N/A')}", titulo_style)
-    elementos.append(titulo)
-    elementos.append(Spacer(1, 0.2*inch))
-    
-    # Información general
-    info_data = [
-        ['Título:', rca_data.get('titulo', 'N/A')],
-        ['Fecha Evento:', str(rca_data.get('fecha_evento', 'N/A'))],
-        ['Área:', rca_data.get('area', 'N/A')],
-        ['Equipo:', rca_data.get('equipo', 'N/A')],
-        ['Criticidad:', rca_data.get('criticidad', 'N/A')],
-        ['Estado:', rca_data.get('estado', 'N/A')],
-        ['Responsable:', rca_data.get('responsable', 'N/A')],
-    ]
-    
-    tabla_info = Table(info_data, colWidths=[2*inch, 4*inch])
-    tabla_info.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (0, -1), colors.grey),
-        ('TEXTCOLOR', (0, 0), (0, -1), colors.whitesmoke),
-        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-        ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, -1), 10),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
-        ('GRID', (0, 0), (-1, -1), 1, colors.black)
-    ]))
-    
-    elementos.append(tabla_info)
-    elementos.append(Spacer(1, 0.3*inch))
-    
-    # Descripción de falla
-    if rca_data.get('descripcion_falla'):
-        elementos.append(Paragraph("<b>Descripción de la Falla:</b>", styles['Heading2']))
-        elementos.append(Paragraph(rca_data['descripcion_falla'], styles['Normal']))
-        elementos.append(Spacer(1, 0.2*inch))
-    
-    # Causa raíz
-    if rca_data.get('causa_raiz'):
-        elementos.append(Paragraph("<b>Causa Raíz:</b>", styles['Heading2']))
-        elementos.append(Paragraph(rca_data['causa_raiz'], styles['Normal']))
-        elementos.append(Spacer(1, 0.2*inch))
-    
-    # Acciones correctivas
-    if rca_data.get('acciones_correctivas'):
-        elementos.append(Paragraph("<b>Acciones Correctivas:</b>", styles['Heading2']))
-        elementos.append(Paragraph(rca_data['acciones_correctivas'], styles['Normal']))
-        elementos.append(Spacer(1, 0.2*inch))
-    
-    # Pie de página
-    elementos.append(Spacer(1, 0.5*inch))
-    fecha_generacion = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    elementos.append(Paragraph(f"<i>Reporte generado: {fecha_generacion}</i>", styles['Italic']))
-    
-    # Generar PDF
-    doc.build(elementos)
+    elements = []
+    def paragraph(text, style='BodyText'):
+        elements.append(Paragraph(escape(str(text)).replace('\n', '<br/>'), styles[style]))
+    paragraph(f"REPORTE RCA - {rca_data.get('codigo', 'N/A')}", 'Heading1')
+    for section, fields in [
+        ('Identificación', [('titulo','Título'), ('estado','Estado'), ('criticidad','Criticidad'),
+            ('fecha_evento','Fecha del evento'), ('area','Área'), ('planta','Planta'), ('equipo','Equipo'),
+            ('descripcion_falla','Descripción de la falla'), ('impacto','Impacto'),
+            ('tiempo_parada_horas','Horas de parada'), ('costo_estimado','Costo estimado')]),
+        ('Análisis', [('causa_inmediata','Causa inmediata'), ('causa_raiz','Causa raíz'),
+            ('causas_contribuyentes','Causas contribuyentes'), ('aprobado_por','Aprobado por'),
+            ('fecha_aprobacion','Fecha de aprobación')]),
+        ('Implementación', [('acciones_correctivas','Acciones correctivas'),
+            ('acciones_preventivas','Acciones preventivas'), ('responsable','Responsable'),
+            ('fecha_compromiso','Fecha compromiso')]),
+        ('Verificación', [('verificacion_efectividad','Resultado de efectividad'),
+            ('fecha_verificacion','Fecha de verificación'), ('efectivo','Acciones efectivas'),
+            ('fecha_cierre','Fecha de cierre')]),
+    ]:
+        paragraph(section, 'Heading2')
+        for field, label in fields:
+            value = rca_data.get(field)
+            if value is not None and value != '':
+                paragraph(label, 'Heading4')
+                paragraph(('Sí' if value else 'No') if isinstance(value, bool) else value)
+    whys = rca_data.get('cinco_porques') or []
+    if any(whys):
+        paragraph('5 Porqués', 'Heading2')
+        for level, why in enumerate(whys, 1):
+            paragraph(f'{level}. {why or "Sin respuesta"}')
+    if rca_data.get('ishikawa'):
+        paragraph('Diagrama de Ishikawa', 'Heading2')
+        for category, causes in rca_data['ishikawa'].items():
+            paragraph(category, 'Heading4')
+            for cause in causes:
+                paragraph(cause)
+    elements.append(Spacer(1, 16))
+    paragraph(f'Reporte generado: {datetime.now():%Y-%m-%d %H:%M:%S}', 'Italic')
+    SimpleDocTemplate(output_path, pagesize=A4).build(elements)
     return output_path

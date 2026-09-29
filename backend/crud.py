@@ -5,7 +5,7 @@ import logging
 from datetime import datetime
 from typing import List, Optional
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 import models
 
@@ -33,7 +33,11 @@ def get_rcas(
     q: Optional[str] = None,
 ):
     """Listar RCAs con filtros opcionales y orden determinista."""
-    query = db.query(models.RCA)
+    query = db.query(models.RCA).options(
+        selectinload(models.RCA.cinco_porques_rel),
+        selectinload(models.RCA.ishikawa_rel),
+        selectinload(models.RCA.historial_rel),
+    )
     if estado:
         query = query.filter(models.RCA.estado == estado)
     if area:
@@ -47,7 +51,7 @@ def get_rcas(
             | (models.RCA.titulo.ilike(like))
             | (models.RCA.descripcion_falla.ilike(like))
         )
-    return query.order_by(models.RCA.fecha_creacion.desc()).offset(skip).limit(limit).all()
+    return query.order_by(models.RCA.fecha_creacion.desc(), models.RCA.id.desc()).offset(skip).limit(limit).all()
 
 
 def create_rca(db: Session, rca_data: dict):

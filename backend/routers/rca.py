@@ -1,142 +1,199 @@
-"""
-Endpoints para gestión de RCAs.
-"""
-import logging
+"""API RCA: permisos, validación, revisión y bitácora en una transacción."""
+from datetime import datetime, date
 from typing import List, Optional
-
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
-
+from fastapi import APIRouter, Depends, HTTPException, Query, Header, Response
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session, selectinload
 from database import get_db
 from routers.auth import get_current_active_user
+from serialization import convert_rca_to_response
+from workflow import require_editor, require_supervisor, require_writable, validate_transition
 import schemas
-import crud
 import models
+import crud
 
-logger = logging.getLogger("rca.router")
-
-router = APIRouter(
-    prefix="/rca",
-    tags=["RCA"],
-    dependencies=[Depends(get_current_active_user)],  # 🔒 Todo el router requiere auth
-)
+router = APIRouter(prefix='/rca', tags=['RCA'], dependencies=[Depends(get_current_active_user)])
 
 
-def convert_rca_to_response(db_rca: models.RCA) -> schemas.RCAResponse:
-    """Convertir un modelo RCA (con relaciones) al schema de respuesta."""
-    # 5 porqués -> lista ordenada por nivel
-    cinco_porques_list: Optional[List[str]] = None
-    if db_rca.cinco_porques_rel:
-        cinco_porques_list = [
-            cp.respuesta
-            for cp in sorted(db_rca.cinco_porques_rel, key=lambda x: x.nivel)
-        ]
-
-    # Ishikawa -> dict categoria -> [causas]
-    ishikawa_dict: Optional[dict] = None
-    if db_rca.ishikawa_rel:
-        ishikawa_dict = {}
-        for ish in db_rca.ishikawa_rel:
-            ishikawa_dict.setdefault(ish.categoria, []).append(ish.causa)
-
-    # Pydantic v2: model_validate en vez de from_orm
-    response = schemas.RCAResponse.model_validate(db_rca)
-    response.cinco_porques = cinco_porques_list
-    response.ishikawa = ishikawa_dict
-    return response
+def locked_rca(db, rca_id):
+    rca = db.query(models.RCA).filter(models.RCA.id == rca_id).populate_existing().with_for_update().first()
+    if not rca:
+        raise HTTPException(404, 'RCA no encontrado')
+    return rca
 
 
-@router.post("", response_model=schemas.RCAResponse, status_code=201)
-def crear_rca(rca: schemas.RCACreate, db: Session = Depends(get_db)):
-    """Crear nuevo RCA."""
-    if crud.get_rca_by_codigo(db, rca.codigo):
-        raise HTTPException(status_code=400, detail="Código RCA ya existe")
-
-    db_rca = crud.create_rca(db, rca.model_dump())
-    return convert_rca_to_response(db_rca)
+def require_revision(rca, if_match):
+    if not if_match:
+        raise HTTPException(428, 'Actualiza la aplicación y carga el RCA antes de modificarlo')
+    revision = convert_rca_to_response(rca).revision
+    if if_match != '"' + revision + '"':
+        raise HTTPException(412, 'Otro usuario modificó este RCA. Carga su última versión antes de guardar')
 
 
-@router.get("", response_model=List[schemas.RCAResponse])
-def listar_rcas(
-    skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=500),
-    estado: Optional[str] = None,
-    area: Optional[str] = None,
-    criticidad: Optional[str] = None,
-    q: Optional[str] = Query(None, description="Búsqueda libre en código/título/falla"),
-    db: Session = Depends(get_db),
-):
-    """Listar RCAs con filtros opcionales."""
-    rcas = crud.get_rcas(db, skip=skip, limit=limit, estado=estado, area=area, criticidad=criticidad, q=q)
-    return [convert_rca_to_response(rca) for rca in rcas]
+def add_event(db, rca, previous, target, user, comment=None):
+    db.add(models.RCAHistorial(rca_id=rca.id, estado_anterior=previous,
+        estado_nuevo=target, usuario_id=user.id,
+        usuario_nombre=user.nombre_completo or user.nombre_usuario,
+        fecha=datetime.utcnow(), comentario=comment))
 
 
-@router.get("/{rca_id}", response_model=schemas.RCAResponse)
-def obtener_rca(rca_id: int, db: Session = Depends(get_db)):
-    """Obtener RCA por ID."""
+def apply_fields(rca, data):
+    data = dict(data)
+    whys = data.pop('cinco_porques', None)
+    causes = data.pop('ishikawa', None)
+    data.pop('comentario_transicion', None)
+    for key, value in data.items():
+        setattr(rca, key, value)
+    if whys is not None:
+        rca.cinco_porques_rel = [models.CincoPorques(nivel=i, porque=f'¿Por qué {i}?', respuesta=text.strip())
+            for i, text in enumerate(whys, 1) if text.strip()]
+    if causes is not None:
+        rca.ishikawa_rel = [models.Ishikawa(categoria=category.strip(), causa=text.strip())
+            for category, values in causes.items() for text in values if text.strip()]
+
+
+def saved_response(db, rca, response):
+    db.commit()
+    db.refresh(rca)
+    db.expire(rca, ['cinco_porques_rel', 'ishikawa_rel', 'historial_rel'])
+    result = convert_rca_to_response(rca)
+    response.headers['ETag'] = '"' + result.revision + '"'
+    return result
+
+
+@router.post('', response_model=schemas.RCAResponse, status_code=201)
+def crear_rca(rca: schemas.RCACreate, response: Response, db: Session = Depends(get_db),
+              user: models.Usuario = Depends(get_current_active_user)):
+    require_editor(user)
+    if rca.estado != 'Abierto':
+        raise HTTPException(422, 'Todo RCA nuevo debe iniciar en Abierto')
+    data = rca.model_dump(exclude={'comentario_transicion'})
+    entity = models.RCA()
+    apply_fields(entity, data)
+    entity.creado_por = user.nombre_completo or user.nombre_usuario
+    entity.modificado_por = entity.creado_por
+    db.add(entity)
+    try:
+        db.flush()
+        add_event(db, entity, None, 'Abierto', user)
+        return saved_response(db, entity, response)
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(409, 'El código RCA ya existe o los datos entran en conflicto')
+
+
+@router.get('', response_model=List[schemas.RCAResponse])
+def listar_rcas(skip: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=500),
+                estado: Optional[schemas.EstadoRCA] = None, area: Optional[str] = None,
+                criticidad: Optional[schemas.CriticidadRCA] = None,
+                q: Optional[str] = Query(None, max_length=200), db: Session = Depends(get_db)):
+    return [convert_rca_to_response(rca) for rca in crud.get_rcas(db, skip, limit, estado, area, criticidad, q)]
+
+
+@router.get('/{rca_id}', response_model=schemas.RCAResponse)
+def obtener_rca(rca_id: int, response: Response, db: Session = Depends(get_db)):
     rca = crud.get_rca(db, rca_id)
     if not rca:
-        raise HTTPException(status_code=404, detail="RCA no encontrado")
-    return convert_rca_to_response(rca)
+        raise HTTPException(404, 'RCA no encontrado')
+    result = convert_rca_to_response(rca)
+    response.headers['ETag'] = '"' + result.revision + '"'
+    return result
 
 
-@router.put("/{rca_id}", response_model=schemas.RCAResponse)
-def actualizar_rca(rca_id: int, rca_update: schemas.RCAUpdate, db: Session = Depends(get_db)):
-    """Actualizar RCA."""
-    update_dict = rca_update.model_dump(exclude_unset=True)
-    rca = crud.update_rca(db, rca_id, update_dict)
-    if not rca:
-        raise HTTPException(status_code=404, detail="RCA no encontrado")
-    return convert_rca_to_response(rca)
+def update_locked(db, rca_id, data, user, if_match, response):
+    require_editor(user)
+    rca = locked_rca(db, rca_id)
+    require_revision(rca, if_match)
+    before = convert_rca_to_response(rca).model_dump()
+    # null significa "no proporcionado" solo para las herramientas; [] / {} las borran.
+    data = {key: value for key, value in data.items()
+            if value is not None or key not in ('cinco_porques', 'ishikawa')}
+    target = data.get('estado', rca.estado)
+    if target != rca.estado:
+        validate_transition(rca.estado, target, {**before, **data}, user)
+        if rca.estado == 'Cerrado':
+            changes = {key for key, value in data.items()
+                       if key not in ('estado', 'comentario_transicion') and before.get(key) != value}
+            if changes:
+                raise HTTPException(409, 'Reabre el RCA antes de modificar su contenido')
+        add_event(db, rca, rca.estado, target, user, data.get('comentario_transicion'))
+        rca.fecha_cierre = date.today() if target == 'Cerrado' else None
+    else:
+        require_writable(rca, user)
+    apply_fields(rca, data)
+    rca.modificado_por = user.nombre_completo or user.nombre_usuario
+    rca.fecha_actualizacion = datetime.utcnow()
+    try:
+        return saved_response(db, rca, response)
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(409, 'No se pudo guardar por un conflicto de datos')
 
 
-@router.delete("/{rca_id}", status_code=204)
-def eliminar_rca(rca_id: int, db: Session = Depends(get_db)):
-    """Eliminar RCA."""
-    if not crud.delete_rca(db, rca_id):
-        raise HTTPException(status_code=404, detail="RCA no encontrado")
-    return None
+@router.put('/{rca_id}', response_model=schemas.RCAResponse)
+def actualizar_rca(rca_id: int, rca_update: schemas.RCAUpdate, response: Response,
+                    if_match: Optional[str] = Header(None), db: Session = Depends(get_db),
+                    user: models.Usuario = Depends(get_current_active_user)):
+    return update_locked(db, rca_id, rca_update.model_dump(exclude_unset=True), user, if_match, response)
 
 
-@router.post("/{rca_id}/cinco-porques")
-def agregar_cinco_porques(
-    rca_id: int,
-    porques: schemas.CincoPorquesCreate,
-    db: Session = Depends(get_db),
-):
-    """Agregar análisis de 5 porqués (registro individual)."""
+@router.delete('/{rca_id}', status_code=204)
+def eliminar_rca(rca_id: int, if_match: Optional[str] = Header(None), db: Session = Depends(get_db),
+                  user: models.Usuario = Depends(get_current_active_user)):
+    require_supervisor(user)
+    rca = locked_rca(db, rca_id)
+    require_revision(rca, if_match)
+    # Casos ya iniciados se conservan: no borrar su trazabilidad.
+    if rca.estado != 'Abierto' or any(event.estado_anterior is not None for event in rca.historial_rel):
+        raise HTTPException(409, 'Solo se pueden eliminar borradores sin historial de etapas')
+    if db.query(models.Archivo).filter_by(rca_id=rca_id).first():
+        raise HTTPException(409, 'Elimina las evidencias del borrador antes de eliminarlo')
+    db.delete(rca)
+    db.commit()
+    return Response(status_code=204)
+
+
+@router.get('/{rca_id}/historial')
+def historial(rca_id: int, db: Session = Depends(get_db)):
     if not crud.get_rca(db, rca_id):
-        raise HTTPException(status_code=404, detail="RCA no encontrado")
-    data = porques.model_dump()
-    data["rca_id"] = rca_id
-    return crud.create_cinco_porque(db, data)
+        raise HTTPException(404, 'RCA no encontrado')
+    events = db.query(models.RCAHistorial).filter_by(rca_id=rca_id).order_by(models.RCAHistorial.id).all()
+    return [dict(id=e.id, estado_anterior=e.estado_anterior, estado_nuevo=e.estado_nuevo,
+        usuario_id=e.usuario_id, usuario_nombre=e.usuario_nombre, fecha=e.fecha,
+        comentario=e.comentario) for e in events]
 
 
-@router.get("/{rca_id}/cinco-porques")
+@router.post('/{rca_id}/cinco-porques', response_model=schemas.RCAResponse)
+def agregar_cinco_porques(rca_id: int, porques: schemas.CincoPorquesCreate, response: Response,
+    if_match: Optional[str] = Header(None), db: Session = Depends(get_db),
+    user: models.Usuario = Depends(get_current_active_user)):
+    require_editor(user)
+    rca = locked_rca(db, rca_id)
+    values = convert_rca_to_response(rca).cinco_porques
+    values[porques.nivel - 1] = porques.respuesta or ''
+    return update_locked(db, rca_id, {'cinco_porques': values}, user, if_match, response)
+
+
+@router.get('/{rca_id}/cinco-porques')
 def obtener_cinco_porques(rca_id: int, db: Session = Depends(get_db)):
-    """Obtener 5 porqués de un RCA."""
     if not crud.get_rca(db, rca_id):
-        raise HTTPException(status_code=404, detail="RCA no encontrado")
+        raise HTTPException(404, 'RCA no encontrado')
     return crud.get_cinco_porques(db, rca_id)
 
 
-@router.post("/{rca_id}/ishikawa")
-def agregar_ishikawa(
-    rca_id: int,
-    ishikawa: schemas.IshikawaCreate,
-    db: Session = Depends(get_db),
-):
-    """Agregar causa al diagrama Ishikawa."""
-    if not crud.get_rca(db, rca_id):
-        raise HTTPException(status_code=404, detail="RCA no encontrado")
-    data = ishikawa.model_dump()
-    data["rca_id"] = rca_id
-    return crud.create_ishikawa(db, data)
+@router.post('/{rca_id}/ishikawa', response_model=schemas.RCAResponse)
+def agregar_ishikawa(rca_id: int, ishikawa: schemas.IshikawaCreate, response: Response,
+    if_match: Optional[str] = Header(None), db: Session = Depends(get_db),
+    user: models.Usuario = Depends(get_current_active_user)):
+    require_editor(user)
+    rca = locked_rca(db, rca_id)
+    values = convert_rca_to_response(rca).ishikawa
+    values.setdefault(ishikawa.categoria, []).append(ishikawa.causa)
+    return update_locked(db, rca_id, {'ishikawa': values}, user, if_match, response)
 
 
-@router.get("/{rca_id}/ishikawa")
+@router.get('/{rca_id}/ishikawa')
 def obtener_ishikawa(rca_id: int, db: Session = Depends(get_db)):
-    """Obtener diagrama Ishikawa."""
     if not crud.get_rca(db, rca_id):
-        raise HTTPException(status_code=404, detail="RCA no encontrado")
+        raise HTTPException(404, 'RCA no encontrado')
     return crud.get_ishikawa(db, rca_id)

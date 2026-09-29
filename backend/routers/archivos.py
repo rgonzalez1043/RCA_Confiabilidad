@@ -1,145 +1,155 @@
-"""
-Endpoints para gestión de archivos (fotos, PDFs, evidencias).
-"""
+"""Evidencias autenticadas, con cuotas, validación de imagen y nombres únicos."""
 import logging
-import os
-import re
-import shutil
-from datetime import datetime
+import mimetypes
+import warnings
 from pathlib import Path
-
-from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
+from uuid import uuid4
+from PIL import Image, UnidentifiedImageError
+from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, Response
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
-
 from config import config
 from database import get_db
 from routers.auth import get_current_active_user
+from routers.rca import locked_rca
+from workflow import require_writable
 import crud
 import models
 
-logger = logging.getLogger("rca.archivos")
-
-router = APIRouter(
-    prefix="/archivo",
-    tags=["Archivos"],
-    dependencies=[Depends(get_current_active_user)],  # 🔒 Todo el router requiere auth
-)
-
-# Carpeta raíz absoluta de almacenamiento
+logger = logging.getLogger('rca.archivos')
+router = APIRouter(prefix='/archivo', tags=['Archivos'], dependencies=[Depends(get_current_active_user)])
+legacy_router = APIRouter(prefix='/archivos', tags=['Archivos'], dependencies=[Depends(get_current_active_user)])
 ARCHIVOS_ROOT = Path(config.ARCHIVOS_PATH).resolve()
-
-# Mapeo extensión -> subcarpeta
-_CARPETA_POR_EXT = {
-    "jpg": "fotos", "jpeg": "fotos", "png": "fotos", "gif": "fotos", "bmp": "fotos", "webp": "fotos",
-    "pdf": "pdfs",
-}
-_MAX_BYTES = config.MAX_UPLOAD_MB * 1024 * 1024
-_SAFE_NAME_RE = re.compile(r"[^A-Za-z0-9._-]+")
+IMAGE_EXTENSIONS = {'jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'}
 
 
-def _safe_filename(nombre: str) -> str:
-    """Sanitizar nombre de archivo conservando la extensión."""
-    nombre = os.path.basename(nombre or "")
-    nombre = _SAFE_NAME_RE.sub("_", nombre).strip("._")
-    return nombre or "archivo"
+def safe_path(relative):
+    path = (ARCHIVOS_ROOT / relative).resolve()
+    if not path.is_relative_to(ARCHIVOS_ROOT) or path == ARCHIVOS_ROOT:
+        raise HTTPException(400, 'Ruta de archivo no válida')
+    return path
 
 
-@router.post("/upload")
-async def subir_archivo(
-    rca_id: int = Form(...),
-    tipo_contenido: str = Form(None),
-    subido_por: str = Form(None),
-    file: UploadFile = File(...),
-    db: Session = Depends(get_db),
-):
-    """Subir un archivo (foto, PDF, evidencia) asociado a un RCA."""
-    # 1) Validar RCA
-    if not crud.get_rca(db, rca_id):
-        raise HTTPException(status_code=404, detail="RCA no encontrado")
+def serialize(archivo):
+    return dict(id=archivo.id, rca_id=archivo.rca_id, nombre_archivo=archivo.nombre_archivo,
+        ruta_archivo=archivo.ruta_archivo, ruta=archivo.ruta_archivo,
+        url=f'/archivo/{archivo.id}/contenido', tipo_archivo=archivo.tipo_archivo,
+        tipo_contenido=archivo.tipo_contenido, tamanio_kb=archivo.tamanio_kb,
+        fecha_subida=archivo.fecha_subida, subido_por=archivo.subido_por)
 
-    # 2) Validar extensión
-    ext = (file.filename or "").rsplit(".", 1)[-1].lower() if "." in (file.filename or "") else ""
+
+@router.post('/upload', status_code=201)
+def subir_archivo(rca_id: int = Form(...), tipo_contenido: str = Form('Evidencia'),
+    file: UploadFile = File(...), db: Session = Depends(get_db),
+    user: models.Usuario = Depends(get_current_active_user)):
+    rca = locked_rca(db, rca_id)
+    require_writable(rca, user)
+    name = Path((file.filename or 'archivo').replace('\\', '/')).name
+    if len(name) > 255 or len(tipo_contenido) > 100:
+        raise HTTPException(422, 'Nombre o clasificación del archivo demasiado largo')
+    ext = Path(name).suffix.lstrip('.').lower()
     if ext not in config.ALLOWED_EXTENSIONS:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Extensión '.{ext}' no permitida. Permitidas: {', '.join(sorted(config.ALLOWED_EXTENSIONS))}",
-        )
-
-    carpeta = _CARPETA_POR_EXT.get(ext, "evidencias")
-    destino_dir = ARCHIVOS_ROOT / carpeta
-    destino_dir.mkdir(parents=True, exist_ok=True)
-
-    # 3) Nombre único y seguro
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    nombre_seguro = _safe_filename(file.filename)
-    nombre_archivo = f"{rca_id}_{timestamp}_{nombre_seguro}"
-    ruta_absoluta = destino_dir / nombre_archivo
-
-    # 4) Guardar con límite de tamaño (evita llenar el disco con archivos enormes)
-    recibidos = 0
-    with open(ruta_absoluta, "wb") as buffer:
-        while True:
-            chunk = await file.read(1024 * 1024)  # 1 MB por chunk
-            if not chunk:
-                break
-            recibidos += len(chunk)
-            if recibidos > _MAX_BYTES:
-                buffer.close()
-                ruta_absoluta.unlink(missing_ok=True)
-                raise HTTPException(
-                    status_code=413,
-                    detail=f"El archivo supera el máximo permitido ({config.MAX_UPLOAD_MB} MB)",
-                )
-            buffer.write(chunk)
-
-    # 5) Ruta relativa para la BD y para exponer al cliente (no exponer ruta absoluta)
-    ruta_relativa = f"{carpeta}/{nombre_archivo}"
-
-    tamanio_kb = max(1, ruta_absoluta.stat().st_size // 1024)
-    archivo_data = {
-        "rca_id": rca_id,
-        "nombre_archivo": file.filename or nombre_archivo,
-        "ruta_archivo": ruta_relativa,
-        "tipo_archivo": ext,
-        "tipo_contenido": tipo_contenido,
-        "tamanio_kb": tamanio_kb,
-        "subido_por": subido_por,
-    }
-    db_archivo = crud.create_archivo(db, archivo_data)
-
-    logger.info("Archivo subido rca_id=%s ruta=%s (%s KB)", rca_id, ruta_relativa, tamanio_kb)
-
-    return {
-        "id": db_archivo.id,
-        "nombre": file.filename,
-        "ruta": ruta_relativa,                       # relativa, para usar con /archivos/...
-        "url": f"/archivos/{ruta_relativa}",         # lista para el cliente
-        "tamanio_kb": tamanio_kb,
-        "tipo": ext,
-    }
+        raise HTTPException(415, 'Tipo de archivo no permitido')
+    if ext in IMAGE_EXTENSIONS:
+        count = db.query(models.Archivo).filter(models.Archivo.rca_id == rca_id,
+            models.Archivo.tipo_archivo.in_(IMAGE_EXTENSIONS | {'imagen'})).count()
+        if count >= config.MAX_PHOTOS_PER_RCA:
+            raise HTTPException(409, f'Se permiten hasta {config.MAX_PHOTOS_PER_RCA} fotos por RCA')
+    folder = 'fotos' if ext in IMAGE_EXTENSIONS else 'pdfs' if ext == 'pdf' else 'evidencias'
+    relative = f'{folder}/{uuid4().hex}.{ext}'
+    destination = safe_path(relative)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    received = 0
+    try:
+        with destination.open('xb') as target:
+            while True:
+                chunk = file.file.read(1024 * 1024)
+                if not chunk:
+                    break
+                received += len(chunk)
+                if received > config.MAX_UPLOAD_MB * 1024 * 1024:
+                    raise HTTPException(413, f'El archivo supera {config.MAX_UPLOAD_MB} MB')
+                target.write(chunk)
+        if not received:
+            raise HTTPException(422, 'El archivo está vacío')
+        if ext in IMAGE_EXTENSIONS:
+            try:
+                with warnings.catch_warnings():
+                    warnings.simplefilter('error', Image.DecompressionBombWarning)
+                    with Image.open(destination) as image:
+                        expected = 'JPEG' if ext in ('jpg', 'jpeg') else ext.upper()
+                        if image.format != expected:
+                            raise ValueError('Formato distinto de la extensión')
+                        image.verify()
+            except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError, Image.DecompressionBombWarning):
+                raise HTTPException(415, 'El contenido no es una imagen válida del tipo indicado')
+        archivo = models.Archivo(rca_id=rca_id, nombre_archivo=name,
+            ruta_archivo=relative, tipo_archivo=ext, tipo_contenido=tipo_contenido,
+            tamanio_kb=max(1, (received + 1023) // 1024),
+            subido_por=user.nombre_completo or user.nombre_usuario)
+        db.add(archivo)
+        db.commit()
+        db.refresh(archivo)
+        return serialize(archivo)
+    except Exception:
+        db.rollback()
+        destination.unlink(missing_ok=True)
+        raise
+    finally:
+        file.file.close()
 
 
-@router.get("/{rca_id}")
+@router.get('/{rca_id}')
 def listar_archivos(rca_id: int, db: Session = Depends(get_db)):
-    """Listar archivos de un RCA."""
     if not crud.get_rca(db, rca_id):
-        raise HTTPException(status_code=404, detail="RCA no encontrado")
+        raise HTTPException(404, 'RCA no encontrado')
+    return [serialize(item) for item in crud.get_archivos_rca(db, rca_id)]
 
-    archivos = crud.get_archivos_rca(db, rca_id)
-    # Enriquecer con URL pública y añadir nombre de subidor
-    resultado = []
-    for a in archivos:
-        resultado.append(
-            {
-                "id": a.id,
-                "nombre_archivo": a.nombre_archivo,
-                "ruta": a.ruta_archivo,
-                "url": f"/archivos/{a.ruta_archivo}",
-                "tipo_archivo": a.tipo_archivo,
-                "tipo_contenido": a.tipo_contenido,
-                "tamanio_kb": a.tamanio_kb,
-                "fecha_subida": a.fecha_subida.isoformat() if a.fecha_subida else None,
-                "subido_por": a.subido_por,
-            }
-        )
-    return resultado
+
+def download(archivo):
+    path = safe_path(archivo.ruta_archivo)
+    if not path.is_file():
+        raise HTTPException(404, 'Archivo no encontrado')
+    return FileResponse(str(path), filename=archivo.nombre_archivo,
+        media_type=mimetypes.guess_type(archivo.nombre_archivo)[0] or 'application/octet-stream',
+        headers={'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff'})
+
+
+@router.get('/{archivo_id}/contenido')
+def descargar_archivo(archivo_id: int, db: Session = Depends(get_db)):
+    archivo = db.query(models.Archivo).filter_by(id=archivo_id).first()
+    if not archivo:
+        raise HTTPException(404, 'Archivo no encontrado')
+    return download(archivo)
+
+
+@legacy_router.get('/{relative:path}')
+def descargar_ruta_legacy(relative: str, db: Session = Depends(get_db)):
+    safe_path(relative)
+    archivo = db.query(models.Archivo).filter_by(ruta_archivo=relative).first()
+    if not archivo:
+        raise HTTPException(404, 'Archivo no encontrado')
+    return download(archivo)
+
+
+@router.delete('/{archivo_id}', status_code=204)
+def eliminar_archivo(archivo_id: int, db: Session = Depends(get_db),
+    user: models.Usuario = Depends(get_current_active_user)):
+    archivo = db.query(models.Archivo).filter_by(id=archivo_id).first()
+    if not archivo:
+        raise HTTPException(404, 'Archivo no encontrado')
+    rca = locked_rca(db, archivo.rca_id)
+    require_writable(rca, user)
+    # Revalidar después de adquirir el bloqueo compartido por todas las escrituras.
+    archivo = db.query(models.Archivo).filter_by(id=archivo_id).populate_existing().first()
+    if not archivo:
+        raise HTTPException(404, 'Archivo no encontrado')
+    path = safe_path(archivo.ruta_archivo)
+    db.delete(archivo)
+    db.commit()
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        # Sin registro, la ruta tampoco es accesible mediante la API.
+        logger.exception('Pendiente de limpieza física archivo_id=%s', archivo_id)
+    return Response(status_code=204)

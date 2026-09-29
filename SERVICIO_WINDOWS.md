@@ -2,6 +2,8 @@
 
 Esta guía explica cómo dejar el backend RCA corriendo **permanentemente** como un servicio de Windows, de modo que arranque solo con el servidor y se reinicie ante caídas.
 
+Para actualizar una instalación existente a 1.2.0, seguir primero [INTEGRACION_ANDROID.md](INTEGRACION_ANDROID.md): respaldar, coordinar la app, crear `rca_historial` al iniciar y verificar MySQL/InnoDB. No ejecutar el instalador como sustituto de ese procedimiento ni copiar `.env` desde otro equipo.
+
 ---
 
 ## 1. Requisitos previos

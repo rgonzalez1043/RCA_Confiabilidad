@@ -7,11 +7,11 @@ de Windows con NSSM (uvicorn + app:app).
 import logging
 import sys
 from pathlib import Path
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -45,7 +45,14 @@ from routers import auth, rca, archivos, reportes  # noqa: E402
 # ---------------------------------------------------------------------------
 # Crear tablas si no existen
 # ---------------------------------------------------------------------------
-Base.metadata.create_all(bind=engine)
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # No abrir conexiones ni crear tablas al importar módulos (pruebas y CLI).
+    Base.metadata.create_all(bind=engine)
+    ARCHIVOS_DIR.mkdir(parents=True, exist_ok=True)
+    for sub in ('fotos', 'pdfs', 'evidencias'):
+        (ARCHIVOS_DIR / sub).mkdir(exist_ok=True)
+    yield
 
 
 # ---------------------------------------------------------------------------
@@ -53,7 +60,8 @@ Base.metadata.create_all(bind=engine)
 # ---------------------------------------------------------------------------
 app = FastAPI(
     title="RCA API - Sistema de Análisis de Causa Raíz",
-    version="1.1.0",
+    version="1.2.0",
+    lifespan=lifespan,
     description="API para gestión de RCA en operaciones industriales",
     docs_url="/docs",
     redoc_url="/redoc",
@@ -111,6 +119,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 app.include_router(auth.router)
 app.include_router(rca.router)
 app.include_router(archivos.router)
+app.include_router(archivos.legacy_router)
 app.include_router(reportes.router)
 
 
@@ -121,7 +130,7 @@ app.include_router(reportes.router)
 def root():
     return {
         "api": "RCA Sistema",
-        "version": "1.1.0",
+        "version": "1.2.0",
         "status": "online",
         "servidor": f"{config.SERVER_HOST}:{config.SERVER_PORT}",
     }
@@ -135,7 +144,7 @@ def health_check(db: Session = Depends(get_db)):
         return {"status": "healthy", "database": "connected"}
     except Exception as e:
         logger.error("Health-check falló: %s", e)
-        raise HTTPException(status_code=503, detail=f"Database error: {str(e)}")
+        raise HTTPException(status_code=503, detail="La base de datos no está disponible")
 
 
 # ---------------------------------------------------------------------------
@@ -144,13 +153,7 @@ def health_check(db: Session = Depends(get_db)):
 ARCHIVOS_DIR = Path(config.ARCHIVOS_PATH)
 logger.info("ARCHIVOS_DIR = %s (existe=%s)", ARCHIVOS_DIR, ARCHIVOS_DIR.exists())
 
-# Crear todas las subcarpetas necesarias antes de montar StaticFiles
-ARCHIVOS_DIR.mkdir(parents=True, exist_ok=True)
-for sub in ("fotos", "pdfs", "evidencias"):
-    (ARCHIVOS_DIR / sub).mkdir(parents=True, exist_ok=True)
-
-app.mount("/archivos", StaticFiles(directory=str(ARCHIVOS_DIR)), name="archivos")
-logger.info("Endpoint /archivos configurado")
+# Las descargas pasan por routers autenticados; no se expone la carpeta completa.
 
 
 # ---------------------------------------------------------------------------

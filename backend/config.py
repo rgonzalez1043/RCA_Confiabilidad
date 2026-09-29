@@ -22,7 +22,8 @@ BASE_DIR = BACKEND_DIR.parent                          # .../RCA_Confiabilidad
 ENV_PATH = BACKEND_DIR / ".env"
 
 # Cargar el .env del backend (no del CWD)
-load_dotenv(dotenv_path=ENV_PATH)
+if os.getenv("RCA_TESTING") != "1":
+    load_dotenv(dotenv_path=ENV_PATH)
 
 
 def _resolve_path(env_value: str, default: Path) -> Path:
@@ -61,7 +62,8 @@ class Config:
     CORS_ORIGINS = [o.strip() for o in _cors_raw.split(",") if o.strip()]
 
     # ---------------- Subida de archivos ----------------
-    MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "25"))
+    MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "10"))
+    MAX_PHOTOS_PER_RCA = int(os.getenv("MAX_PHOTOS_PER_RCA", "10"))
     ALLOWED_EXTENSIONS = {
         "jpg", "jpeg", "png", "gif", "bmp", "webp",
         "pdf", "mp4", "mov", "avi", "csv", "xlsx", "docx",
@@ -69,6 +71,8 @@ class Config:
 
     @property
     def database_url(self) -> str:
+        if os.getenv("RCA_TESTING") == "1":
+            return "sqlite://"
         password = quote_plus(self.DB_PASSWORD) if self.DB_PASSWORD else ""
         return (
             f"mysql+pymysql://{self.DB_USER}:{password}"
@@ -112,6 +116,8 @@ _INSECURE_DEFAULTS = {
 }
 
 if config.SECRET_KEY in _INSECURE_DEFAULTS:
+    if os.getenv("RCA_TESTING") == "1":
+        raise RuntimeError("Las pruebas deben proporcionar una clave JWT de prueba")
     nueva = secrets.token_urlsafe(48)
     config.SECRET_KEY = nueva
     _persistir_secret_key(ENV_PATH, nueva)
