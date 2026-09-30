@@ -69,3 +69,8 @@ logs/*
 # Pruebas locales
 .venv-test/
 .pytest_cache/
+
+# Artefactos de la entrega portable
+wheels/
+versiones_conocidas.txt
+CONTENIDO_ENTREGA.json

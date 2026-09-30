@@ -108,3 +108,9 @@ El token permanece en SharedPreferences y hay HTTP en la LAN. Los borradores son
 ## Cómo cerrar la próxima sesión
 
 Anotar aquí las pruebas realmente realizadas, fecha, versiones/commits desplegados, resultados, IDs de los casos de prueba y asuntos pendientes. No marcar una comprobación como hecha solo porque pasó con SQLite o porque se pudo descargar el código. Publicar los cambios validados en los repositorios afectados, verificar el push y dejar claro qué está en GitHub, qué está desplegado y qué APK fue instalado. No se necesita volver a pedir autorización para los commits/push habituales ya solicitados.
+
+## Entrega portable del 30/09/2026
+
+La entrega para trasladar al servidor reúne APK release 1.0.1 (código 2), ZIP del backend 1.2.0 y bibliotecas Windows x64 para Python 3.10–3.12. El generador y la guía están en `scripts/preparar_entrega.py` y `docs/ENTREGA_PORTABLE.md` del proyecto Android; los artefactos generados no se publican en Git.
+
+Se verificó una instalación offline limpia con Python 3.10, la conservación de `.env` al repetirla y las 21 pruebas del backend con ese entorno. No se modificaron datos ni servicios reales. Se añadieron el preparador del entorno, soporte offline en el actualizador, protección de servicios existentes y valores coherentes en `.env.example`. Para el servidor actual se mantiene el procedimiento de actualización con respaldo; instalar un servicio nuevo corresponde solo a una instalación nueva.

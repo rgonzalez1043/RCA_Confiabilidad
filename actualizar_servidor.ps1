@@ -19,7 +19,7 @@ param(
     [switch]$SoloVerificar,
     # Omite mysqldump porque la base ya se respaldó por otro medio.
     [switch]$RespaldoBDManual,
-    # Ejecuta pip install -r requirements.txt si faltan dependencias.
+    # Instala dependencias faltantes desde wheels/ si está disponible.
     [switch]$InstalarDependencias,
     [string]$Servicio = 'RCAService',
     # Carpeta instalada (la que contiene backend\.env). Por defecto, la del servicio.
@@ -238,10 +238,13 @@ $r = Invoke-Nativo $Python @($verificador, 'importar') (Join-Path $origen 'backe
 Write-Host $r.Salida
 if ($r.Codigo -ne 0) {
     if (-not $InstalarDependencias) {
-        Detener 'El código nuevo no se puede importar con ese entorno. Revisa el mensaje; si faltan dependencias, vuelve a ejecutar con -InstalarDependencias (requiere Internet).'
+        Detener 'El código nuevo no se puede importar con ese entorno. Si faltan dependencias, vuelve a ejecutar con -InstalarDependencias (usa wheels/ si viene en el paquete; en otro caso requiere Internet).'
     }
     Paso 'Instalando dependencias fijadas en requirements.txt'
-    $pip = Invoke-Nativo $Python @('-m', 'pip', 'install', '-r', (Join-Path $origen 'requirements.txt'))
+    $pipArgs = @('-m', 'pip', 'install', '-r', (Join-Path $origen 'requirements.txt'))
+    $wheels = Join-Path $origen 'wheels'
+    if (Test-Path -LiteralPath $wheels) { $pipArgs += @('--no-index', '--find-links', $wheels) }
+    $pip = Invoke-Nativo $Python $pipArgs
     Write-Host $pip.Salida
     if ($pip.Codigo -ne 0) { Detener 'pip install falló. El servicio sigue funcionando con la versión anterior.' }
     $r = Invoke-Nativo $Python @($verificador, 'importar') (Join-Path $origen 'backend')

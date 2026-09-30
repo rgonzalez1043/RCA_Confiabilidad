@@ -151,7 +151,7 @@ Con el paquete ZIP de una versión, descomprimirlo **fuera** de la instalación,
 
 Si la instalación es un repositorio Git, la alternativa es `git pull --ff-only` seguido de `Restart-Service RCAService`.
 
-> No hace falta reinstalar dependencias salvo que cambie `requirements.txt`. El verificador lo comprueba; `ACTUALIZAR_SERVIDOR.bat -InstalarDependencias` las instala si faltan.
+> No hace falta reinstalar dependencias salvo que cambie `requirements.txt`. El verificador lo comprueba; `ACTUALIZAR_SERVIDOR.bat -InstalarDependencias` las instala si faltan, utilizando `wheels/` sin Internet cuando el paquete lo incluye.
 
 ---
 

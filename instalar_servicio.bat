@@ -90,16 +90,14 @@ if not exist "%PROJECT_DIR%\archivos\pdfs" mkdir "%PROJECT_DIR%\archivos\pdfs"
 if not exist "%PROJECT_DIR%\archivos\evidencias" mkdir "%PROJECT_DIR%\archivos\evidencias"
 
 REM ----------------------------------------------------------
-REM Si el servicio ya existe, detenerlo y removerlo
+REM Una instalacion existente se actualiza mediante el procedimiento con respaldo
 REM ----------------------------------------------------------
 nssm status RCAService >nul 2>&1
 if %ERRORLEVEL% equ 0 (
-    echo  El servicio RCAService ya existe. Deteniendolo...
-    nssm stop RCAService >nul 2>&1
-    timeout /t 2 /nobreak >nul
-    nssm remove RCAService confirm >nul 2>&1
-    echo  Servicio anterior removido.
-    echo.
+    echo  El servicio RCAService ya existe. Se conserva su configuracion.
+    echo  Usa VERIFICAR_SERVIDOR.bat y ACTUALIZAR_SERVIDOR.bat para actualizarlo.
+    pause
+    exit /b 1
 )
 
 REM ----------------------------------------------------------

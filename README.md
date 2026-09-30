@@ -142,3 +142,11 @@ RCA_Confiabilidad/
 ## 📄 Licencia
 
 Uso interno — Todos los derechos reservados
+
+## Entrega portable y entorno sin Internet
+
+El paquete ZIP preparado para el servidor incluye `wheels/` con las bibliotecas de `requirements.txt` para Windows x64 y Python 3.10, 3.11 o 3.12. Ejecutar `PREPARAR_ENTORNO.bat` (también invocado por `instalar.bat`) crea o reutiliza `venv`, instala las bibliotecas locales y comprueba la importación sin conectar a MySQL. Si no existe `wheels/`, usa pip con Internet. Puede indicarse un intérprete concreto con `PREPARAR_ENTORNO.bat -Python "C:\ruta\python.exe"`.
+
+La preparación conserva `.env` si existe y no crea una base de datos ni modifica servicios. Para una instalación nueva, configurar MySQL y `.env` antes de ejecutar `instalar_servicio.bat` como administrador, con NSSM disponible. Ese instalador se detiene si el servicio ya existe: para actualizarlo se utilizan el verificador y el actualizador con respaldo. La nueva plantilla `.env.example` usa carpetas dentro del proyecto y límites de 10 MB y 10 fotos; no modifica la configuración instalada.
+
+Las carpetas `wheels/` y los manifests de entrega se generan al empaquetar; no se versionan. El generador está en `scripts/preparar_entrega.py` del repositorio Android, junto con `docs/ENTREGA_PORTABLE.md`.
